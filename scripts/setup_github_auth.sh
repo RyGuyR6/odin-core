@@ -1,148 +1,87 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-echo "========================================"
-echo "Setting up Odin GitHub Authentication"
-echo "========================================"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND="$ROOT/backend"
 
-mkdir -p backend/app/api
-mkdir -p backend/app/services
-mkdir -p backend/app/core
+echo "========================================="
+echo " Sprint 33 - GitHub Authentication"
+echo "========================================="
+echo
 
-############################################
-# settings.py
-############################################
-
-cat > backend/app/core/settings.py <<'PYEOF'
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class Settings(BaseSettings):
-    APP_NAME: str = "Odin Core"
-    VERSION: str = "0.1.0"
-    ENVIRONMENT: str = "development"
-
-    GITHUB_TOKEN: str | None = None
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-    )
-
-
-settings = Settings()
-PYEOF
-
-############################################
-# .env
-############################################
-
-if [ ! -f backend/.env ]; then
-cat > backend/.env <<'ENVEOF'
-GITHUB_TOKEN=
-ENVEOF
+# Verify backend exists
+if [ ! -d "$BACKEND/app" ]; then
+    echo "ERROR: Could not find backend/app"
+    echo "Expected: $BACKEND/app"
+    exit 1
 fi
 
-############################################
-# .gitignore
-############################################
+echo "[1/4] Creating service directory..."
+mkdir -p "$BACKEND/app/services"
 
-touch backend/.gitignore
+echo "[2/4] Creating GitHub service..."
 
-grep -qxF ".env" backend/.gitignore || echo ".env" >> backend/.gitignore
-grep -qxF ".venv/" backend/.gitignore || echo ".venv/" >> backend/.gitignore
-grep -qxF "__pycache__/" backend/.gitignore || echo "__pycache__/" >> backend/.gitignore
-grep -qxF ".pytest_cache/" backend/.gitignore || echo ".pytest_cache/" >> backend/.gitignore
+cat > "$BACKEND/app/services/github_service.py" <<'PYTHON'
+"""
+GitHub Service
 
-############################################
-# github_service.py
-############################################
+Handles authenticated communication with GitHub.
+"""
 
-cat > backend/app/services/github_service.py <<'PYEOF'
-from github import Github
-
-from app.core.settings import settings
-from app.services.base import BaseService
+import os
+import requests
 
 
-class GitHubService(BaseService):
-    name = "GitHub"
+class GitHubService:
+    BASE_URL = "https://api.github.com"
 
     def __init__(self):
-        self.client = (
-            Github(settings.GITHUB_TOKEN)
-            if settings.GITHUB_TOKEN
-            else None
+        token = os.getenv("GITHUB_TOKEN")
+
+        if not token:
+            raise RuntimeError("GITHUB_TOKEN is not configured.")
+
+        self.session = requests.Session()
+
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            }
         )
 
-    def connected(self):
-        return self.client is not None
+    def get_current_user(self):
+        response = self.session.get(f"{self.BASE_URL}/user")
+        response.raise_for_status()
+        return response.json()
 
-    def username(self):
-        if not self.connected():
-            return None
+    def list_repositories(self):
+        response = self.session.get(f"{self.BASE_URL}/user/repos")
+        response.raise_for_status()
+        return response.json()
+PYTHON
 
-        return self.client.get_user().login
-PYEOF
+echo "[3/4] Creating .env.example..."
 
-############################################
-# github api
-############################################
+cat > "$BACKEND/.env.example" <<'ENV'
+GITHUB_TOKEN=replace_with_your_token
+ENV
 
-cat > backend/app/api/github.py <<'PYEOF'
-from fastapi import APIRouter
+echo "[4/4] Verifying files..."
 
-from app.services.container import container
-
-router = APIRouter(prefix="/github", tags=["GitHub"])
-
-
-@router.get("/status")
-def github_status():
-    github = container.get("github")
-
-    return {
-        "connected": github.connected(),
-        "username": github.username(),
-    }
-PYEOF
-
-############################################
-# main.py
-############################################
-
-python3 <<'PYEOF'
-from pathlib import Path
-
-path = Path("backend/app/main.py")
-text = path.read_text()
-
-if "github_router" not in text:
-    text = text.replace(
-        "from app.api.version import router as version_router",
-        "from app.api.version import router as version_router\nfrom app.api.github import router as github_router",
-    )
-
-if "app.include_router(github_router)" not in text:
-    idx = text.rfind("app.include_router(")
-    if idx != -1:
-        end = text.find("\n", idx)
-        text = text[:end+1] + "app.include_router(github_router)\n" + text[end+1:]
-
-path.write_text(text)
-PYEOF
+test -f "$BACKEND/app/services/github_service.py"
+test -f "$BACKEND/.env.example"
 
 echo
-echo "========================================"
-echo "GitHub authentication scaffold complete!"
-echo "========================================"
+echo "========================================="
+echo " Sprint 33 Complete"
+echo "========================================="
 echo
-echo "Next:"
-echo "1. cd backend"
-echo "2. .venv/bin/pip install PyGithub"
-echo "3. Put your GitHub PAT in backend/.env"
-echo "4. cd .."
-echo "5. make run"
+echo "Created:"
+echo "  backend/app/services/github_service.py"
+echo "  backend/.env.example"
 echo
-echo "Then visit:"
-echo "http://localhost:8000/github/status"
+echo "Next Sprint:"
+echo "  GitHub API Router"
+echo
