@@ -1,9 +1,10 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.github.workflow import GitHubWorkflow
+from app.workflows.github.modify_file import (
+    ModifyFileRequest,
+    ModifyFileWorkflow,
+)
 
 
 router = APIRouter(
@@ -12,40 +13,41 @@ router = APIRouter(
 )
 
 
-def get_workflow() -> GitHubWorkflow:
-    return GitHubWorkflow()
-
-
-class ModifyFileRequest(BaseModel):
+class ModifyFileBody(BaseModel):
     owner: str = Field(..., description="GitHub repository owner")
     repo: str = Field(..., description="Repository name")
-    branch: str = Field(..., description="Target branch")
-    path: str = Field(..., description="File path")
+
+    path: str = Field(..., description="Repository file path")
+
+    content: str = Field(..., description="New file contents")
+
+    branch_name: str = Field(..., description="Feature branch name")
+
     commit_message: str = Field(..., min_length=1)
+
     pr_title: str = Field(..., min_length=1)
+
     pr_body: str = ""
 
 
 @router.post("/modify-file")
-def modify_file(
-    request: ModifyFileRequest,
-    workflow: Annotated[GitHubWorkflow, Depends(get_workflow)],
+async def modify_file(
+    body: ModifyFileBody,
 ):
-    """
-    Execute a GitHub file modification workflow.
-    """
+    workflow = ModifyFileWorkflow()
 
     try:
-
-        result = workflow.modify_file(
-            owner=request.owner,
-            repo=request.repo,
-            branch=request.branch,
-            path=request.path,
-            transform=lambda content: content,
-            commit_message=request.commit_message,
-            pr_title=request.pr_title,
-            pr_body=request.pr_body,
+        result = await workflow.execute(
+            ModifyFileRequest(
+                owner=body.owner,
+                repo=body.repo,
+                path=body.path,
+                content=body.content,
+                branch_name=body.branch_name,
+                commit_message=body.commit_message,
+                pr_title=body.pr_title,
+                pr_body=body.pr_body,
+            )
         )
 
         return result

@@ -1,5 +1,11 @@
-from .client import GitHubClient
-from .repositories import RepositoryService
-from .branches import BranchService
-from .commits import CommitService
-from .pull_requests import PullRequestService
+"""
+GitHub service package.
+
+Expose a single shared GitHubProvider instance for the application.
+Business logic (GitHubOperations) should be instantiated by workflows
+or injected by the Kernel, not shared globally.
+"""
+
+from .provider import GitHubProvider
+
+github = GitHubProvider()

@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     ENVIRONMENT: str = "development"
 
-    GITHUB_TOKEN: str | None = None
+    ODIN_GITHUB_TOKEN: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

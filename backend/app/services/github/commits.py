@@ -3,10 +3,35 @@ from .client import GitHubClient
 
 class CommitService:
 
-    def __init__(self):
-        self.client = GitHubClient()
+    def __init__(self, client: GitHubClient):
+        self.client = client
 
-    def create_blob(self, owner, repo, content):
+    def get_commit(
+        self,
+        owner,
+        repo,
+        commit_sha,
+    ):
+        return self.client.get(
+            f"/repos/{owner}/{repo}/git/commits/{commit_sha}"
+        )
+
+    def get_tree(
+        self,
+        owner,
+        repo,
+        tree_sha,
+    ):
+        return self.client.get(
+            f"/repos/{owner}/{repo}/git/trees/{tree_sha}"
+        )
+
+    def create_blob(
+        self,
+        owner,
+        repo,
+        content,
+    ):
         return self.client.post(
             f"/repos/{owner}/{repo}/git/blobs",
             {

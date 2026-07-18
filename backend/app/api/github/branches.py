@@ -1,13 +1,14 @@
 from fastapi import APIRouter, HTTPException
 
 from app.services.github.branches import BranchService
+from app.services.github.provider import GitHubProvider
 
 router = APIRouter(
     prefix="/github",
     tags=["GitHub"],
 )
 
-branches = BranchService()
+branches = GitHubProvider().branches
 
 
 def run(fn):

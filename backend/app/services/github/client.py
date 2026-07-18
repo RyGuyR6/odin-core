@@ -7,19 +7,25 @@ class GitHubClient:
     BASE_URL = "https://api.github.com"
 
     def __init__(self):
-        if not settings.GITHUB_TOKEN:
-            raise RuntimeError("GITHUB_TOKEN not configured.")
+        if not settings.ODIN_GITHUB_TOKEN:
+            raise RuntimeError("ODIN_GITHUB_TOKEN not configured.")
 
         self.session = requests.Session()
 
         self.session.headers.update({
-            "Authorization": f"Bearer {settings.GITHUB_TOKEN}",
+            "Authorization": f"Bearer {settings.ODIN_GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         })
 
     def get(self, endpoint):
         r = self.session.get(f"{self.BASE_URL}{endpoint}")
+
+        if not r.ok:
+            print(f"GET {r.url}")
+            print(r.status_code)
+            print(r.text)
+
         r.raise_for_status()
         return r.json()
 
@@ -28,6 +34,12 @@ class GitHubClient:
             f"{self.BASE_URL}{endpoint}",
             json=payload,
         )
+
+        if not r.ok:
+            print(f"POST {r.url}")
+            print(r.status_code)
+            print(r.text)
+
         r.raise_for_status()
         return r.json()
 
@@ -36,5 +48,11 @@ class GitHubClient:
             f"{self.BASE_URL}{endpoint}",
             json=payload,
         )
+
+        if not r.ok:
+            print(f"PATCH {r.url}")
+            print(r.status_code)
+            print(r.text)
+
         r.raise_for_status()
         return r.json()

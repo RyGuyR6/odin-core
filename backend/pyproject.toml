@@ -3,6 +3,15 @@ name = "odin-core"
 version = "0.1.0"
 description = "Odin AI Software Engineering Platform"
 requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.139.2",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "pytest>=9.1.1",
+    "pytest-mock>=3.15.1",
+    "requests>=2.34.2",
+    "uvicorn>=0.51.0",
+]
 
 [tool.black]
 line-length = 88

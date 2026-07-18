@@ -3,8 +3,8 @@ from .client import GitHubClient
 
 class PullRequestService:
 
-    def __init__(self):
-        self.client = GitHubClient()
+    def __init__(self, client: GitHubClient):
+        self.client = client
 
     def create_pull_request(
         self,

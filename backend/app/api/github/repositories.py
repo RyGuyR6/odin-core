@@ -1,13 +1,14 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from app.services.github.repositories import RepositoryService
+from app.services.github.provider import GitHubProvider
 
 router = APIRouter(
     prefix="/github",
     tags=["GitHub"],
 )
 
-repos = RepositoryService()
+repos = GitHubProvider().repositories
 
 
 def run(fn):
