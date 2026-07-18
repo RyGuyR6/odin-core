@@ -1,18 +1,32 @@
+from app.core.logger import logger
+from app.core.settings import settings
+
+from app.services.container import container
+from app.services.health_service import HealthService
+from app.services.github_service import GitHubService
+
+from app.tools.registry import registry
+from app.tools.health_tool import HealthTool
+
+
 class Odin:
-    """
-    The central application object.
-
-    Every future system (GitHub, Memory, Discord, Minecraft, etc.)
-    will be attached here.
-    """
-
     def __init__(self):
-        self.name = "Odin"
-        self.version = "0.0.1"
+        self.name = settings.APP_NAME
+        self.version = settings.VERSION
+        self.environment = settings.ENVIRONMENT
+
+        container.register("health", HealthService())
+        container.register("github", GitHubService())
+        registry.register(HealthTool())
+
+        logger.info("Odin initialized.")
 
     def status(self):
         return {
             "name": self.name,
             "version": self.version,
+            "environment": self.environment,
             "status": "online",
+            "services": list(container.services.keys()),
+            "tools": registry.list_tools(),
         }

@@ -1,0 +1,9 @@
+name: github
+version: 0.1.0
+
+description: GitHub integration plugin
+
+tools:
+  - github.list_repositories
+  - github.read_file
+  - github.search
