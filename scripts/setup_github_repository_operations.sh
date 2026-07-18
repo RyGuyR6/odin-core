@@ -1,3 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVICE="$ROOT/backend/app/services/github_service.py"
+
+echo "========================================="
+echo " Sprint 36 - Repository Operations"
+echo "========================================="
+echo
+
+if [ ! -f "$SERVICE" ]; then
+    echo "ERROR: GitHub service not found."
+    exit 1
+fi
+
+cat > "$SERVICE" <<'PYTHON'
 """
 GitHub Service
 
@@ -45,31 +62,15 @@ class GitHubService:
 
     def get_file(self, owner: str, repo: str, path: str):
         return self._get(f"/repos/{owner}/{repo}/contents/{path}")
+PYTHON
 
-    def _post(self, endpoint: str, payload: dict):
-        response = self.session.post(
-            f"{self.BASE_URL}{endpoint}",
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    def get_branch(self, owner: str, repo: str, branch: str):
-        return self._get(
-            f"/repos/{owner}/{repo}/git/ref/heads/{branch}"
-        )
-
-    def create_branch(
-        self,
-        owner: str,
-        repo: str,
-        new_branch: str,
-        source_sha: str,
-    ):
-        return self._post(
-            f"/repos/{owner}/{repo}/git/refs",
-            {
-                "ref": f"refs/heads/{new_branch}",
-                "sha": source_sha,
-            },
-        )
+echo
+echo "========================================="
+echo " Sprint 36 Complete"
+echo "========================================="
+echo
+echo "Added:"
+echo "  get_repository()"
+echo "  list_branches()"
+echo "  get_file()"
+echo

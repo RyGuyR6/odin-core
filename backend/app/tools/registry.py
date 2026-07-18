@@ -1,15 +1,18 @@
-class ToolRegistry:
-    def __init__(self):
-        self._tools = {}
+from typing import Dict
 
-    def register(self, tool):
+from .base import Tool
+
+
+class ToolRegistry:
+
+    def __init__(self):
+        self._tools: Dict[str, Tool] = {}
+
+    def register(self, tool: Tool):
         self._tools[tool.name] = tool
 
-    def get(self, name):
+    def get(self, name: str):
         return self._tools.get(name)
 
-    def list_tools(self):
-        return list(self._tools.keys())
-
-
-registry = ToolRegistry()
+    def list(self):
+        return sorted(self._tools.keys())
