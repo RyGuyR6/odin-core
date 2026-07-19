@@ -10,9 +10,16 @@ class Tool(ABC):
     description: str = ""
 
     @abstractmethod
-    def execute(self, **kwargs):
+    def execute(self, **kwargs) -> dict:
+        """
+        Execute the tool.
+
+        Returns
+        -------
+        dict
+            JSON-serializable result.
+        """
         raise NotImplementedError
 
 
-# Backwards compatibility
 BaseTool = Tool
