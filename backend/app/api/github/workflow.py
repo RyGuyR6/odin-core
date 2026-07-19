@@ -1,4 +1,3 @@
-cat > backend/app/api/github/workflow.py <<'PY'
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -40,4 +39,3 @@ def modify_file(body: ModifyFileBody):
             status_code=500,
             detail=str(exc),
         ) from exc
-PY
