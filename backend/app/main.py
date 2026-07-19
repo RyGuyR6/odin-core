@@ -1,11 +1,10 @@
-cat > backend/app/main.py <<'PY'
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.github import router as github_router
 from app.api.health import router as health_router
 from app.api.version import router as version_router
+from app.api.github import router as github_router
 from app.core.odin import Odin
 from app.core.settings import settings
 from app.mcp_server import mcp
@@ -35,4 +34,3 @@ app.mount("/mcp", mcp.streamable_http_app())
 @app.get("/")
 def root():
     return odin.status()
-PY
