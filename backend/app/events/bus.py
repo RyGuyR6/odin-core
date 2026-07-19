@@ -1,3 +1,4 @@
+from app.storage.service import storage_service
 """Thread-safe publish-and-subscribe event bus for Odin."""
 
 from collections import defaultdict, deque
@@ -48,6 +49,10 @@ class EventBus:
 
         with self._condition:
             self._history.append(event)
+            try:
+                storage_service.persist_event(event)
+            except Exception:
+                pass
 
             handlers = [
                 *self._subscribers.get(event.type, []),

@@ -1,3 +1,4 @@
+from app.storage.service import storage_service
 """Thread-safe in-memory job manager."""
 
 from threading import RLock
@@ -36,6 +37,7 @@ class JobManager:
 
         self._publish("job.created", job)
 
+        storage_service.save_job(job)
         return job
 
     def exists(self, job_id: str) -> bool:
@@ -49,6 +51,7 @@ class JobManager:
         if job is None:
             raise KeyError(f"Job not found: {job_id}")
 
+        storage_service.save_job(job)
         return job
 
     def instances(self) -> list[Job]:
@@ -66,6 +69,7 @@ class JobManager:
 
         self._publish("job.started", job)
 
+        storage_service.save_job(job)
         return job
 
     def update_progress(
@@ -81,6 +85,7 @@ class JobManager:
 
         self._publish("job.progress", job)
 
+        storage_service.save_job(job)
         return job
 
     def complete(self, job_id: str, result: Any) -> Job:
@@ -91,6 +96,7 @@ class JobManager:
 
         self._publish("job.completed", job)
 
+        storage_service.save_job(job)
         return job
 
     def fail(
@@ -105,6 +111,7 @@ class JobManager:
 
         self._publish("job.failed", job)
 
+        storage_service.save_job(job)
         return job
 
     def cancel(self, job_id: str) -> Job:
@@ -115,6 +122,7 @@ class JobManager:
 
         self._publish("job.cancelled", job)
 
+        storage_service.save_job(job)
         return job
 
     def delete(self, job_id: str) -> Job:
@@ -134,6 +142,7 @@ class JobManager:
             },
         )
 
+        storage_service.save_job(job)
         return job
 
     def clear(self) -> None:
