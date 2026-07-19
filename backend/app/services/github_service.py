@@ -13,14 +13,14 @@ class GitHubService:
     BASE_URL = "https://api.github.com"
 
     def __init__(self):
-        if not settings.GITHUB_TOKEN:
+        if not settings.ODIN_GITHUB_TOKEN:
             raise RuntimeError("GITHUB_TOKEN is not configured.")
 
         self.session = requests.Session()
 
         self.session.headers.update(
             {
-                "Authorization": f"Bearer {settings.GITHUB_TOKEN}",
+                "Authorization": f"Bearer {settings.ODIN_GITHUB_TOKEN}",
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
             }
