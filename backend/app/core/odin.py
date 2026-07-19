@@ -5,8 +5,8 @@ from app.services.container import container
 from app.services.health_service import HealthService
 from app.services.github_service import GitHubService
 
+from app.tools.loader import load_tools
 from app.tools.registry import registry
-from app.tools.health_tool import HealthTool
 
 
 class Odin:
@@ -17,7 +17,8 @@ class Odin:
 
         container.register("health", HealthService())
         container.register("github", GitHubService())
-        registry.register(HealthTool())
+
+        load_tools()
 
         logger.info("Odin initialized.")
 
