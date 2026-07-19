@@ -1,4 +1,5 @@
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app.workflows.github.modify_file import ModifyFileWorkflow
 
@@ -13,6 +14,19 @@ mcp = FastMCP(
     stateless_http=True,
     json_response=True,
     streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            "odin-core.onrender.com",
+            "odin-core.onrender.com:*",
+            "api.odincore.net",
+            "api.odincore.net:*",
+            "localhost",
+            "localhost:*",
+            "127.0.0.1",
+            "127.0.0.1:*",
+        ],
+    ),
 )
 
 
