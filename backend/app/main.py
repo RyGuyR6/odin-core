@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.health import router as health_router
+from app.api.events import router as events_router
 from app.api.version import router as version_router
 from app.api.github import router as github_router
 from app.api.tools import router as tools_router
@@ -32,6 +33,7 @@ app.include_router(version_router)
 app.include_router(github_router)
 app.include_router(tools_router)
 app.include_router(jobs_router)
+app.include_router(events_router)
 app.include_router(planner_router)
 
 app.mount("/mcp", mcp.streamable_http_app())
