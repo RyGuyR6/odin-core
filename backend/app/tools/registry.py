@@ -29,5 +29,11 @@ class ToolRegistry:
         """
         return list(self._tools.values())
 
+    def metadata(self):
+        """
+        Return metadata for every tool.
+        """
+        return [tool.metadata() for tool in self.all()]
+
 
 registry = ToolRegistry()
