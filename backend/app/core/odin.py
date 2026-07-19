@@ -28,5 +28,5 @@ class Odin:
             "environment": self.environment,
             "status": "online",
             "services": list(container.services.keys()),
-            "tools": registry.list_tools(),
+            "tools": registry.list(),
         }
