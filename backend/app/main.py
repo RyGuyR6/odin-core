@@ -13,6 +13,11 @@ from app.api.tools import router as tools_router
 from app.api.jobs import router as jobs_router
 from app.api.planner import router as planner_router
 from app.api.llm import router as llm_router
+from app.api.prompts import router as prompts_router
+from app.api.conversations import router as conversations_router
+from app.api.conversations import sessions_router
+from app.api.agents import router as agents_router
+from app.api.agents import workflows_router
 from app.core.odin import Odin
 from app.core.settings import settings
 from app.mcp_server import mcp
@@ -44,6 +49,11 @@ app.include_router(storage_router)
 app.include_router(memory_router)
 app.include_router(auth_router)
 app.include_router(llm_router)
+app.include_router(prompts_router)
+app.include_router(sessions_router)
+app.include_router(workflows_router)
+app.include_router(agents_router)
+app.include_router(conversations_router)
 app.include_router(planner_router)
 
 app.mount("/mcp", mcp.streamable_http_app())
