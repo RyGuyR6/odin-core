@@ -12,3 +12,7 @@ class Tool(ABC):
     @abstractmethod
     def execute(self, **kwargs):
         raise NotImplementedError
+
+
+# Backwards compatibility
+BaseTool = Tool
