@@ -21,6 +21,9 @@ from app.repository.models import (
 from app.repository.parser import RepositoryParser
 from app.repository.query import RepositoryQuery
 from app.repository.analysis import AnalysisPipeline
+from app.repository.ir import IRBuilder
+from app.repository.ir import IRQuery
+from app.repository.ir import IRAnalysisAdapter
 from app.repository.resolution import (
     ResolutionContext,
     ResolutionEngine,
@@ -54,6 +57,10 @@ class Repository:
         )
 
         self.analysis = AnalysisPipeline()
+        self.ir_builder = IRBuilder()
+        self.ir_modules = []
+        self.ir_query = IRQuery(self.ir_modules)
+        self.ir_analysis = IRAnalysisAdapter(self)
 
         self.resolver = SymbolResolver(
             self._index,
@@ -180,11 +187,37 @@ class Repository:
         )
 
 
+
+
+    def build_ir(self):
+        """
+        Build IR for every parsed module.
+        """
+        self.ir_modules = []
+
+        for path, tree in self._parsed.items():
+            self.ir_modules.append(
+                self.ir_builder.build_module(
+                    path=path,
+                    tree=tree,
+                )
+            )
+
+        self.ir_query = IRQuery(self.ir_modules)
+        self.ir_analysis = IRAnalysisAdapter(self)
+        return self.ir_modules
+
     def analyze(self):
         """
         Execute all registered analysis passes.
         """
         return self.analysis.run(self)
+
+
+
+    @property
+    def ir(self):
+        return self.ir_modules
 
     @property
     def file_count(self) -> int:

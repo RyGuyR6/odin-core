@@ -1,0 +1,760 @@
+backend/app
+├── __init__.py
+├── __pycache__
+│   ├── __init__.cpython-312.pyc
+│   ├── config.cpython-312.pyc
+│   ├── logging.cpython-312.pyc
+│   └── main.cpython-312.pyc
+├── agents
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── debug_agent.cpython-312.pyc
+│   │   ├── engineering_agent.cpython-312.pyc
+│   │   ├── github_agent.cpython-312.pyc
+│   │   ├── planning_agent.cpython-312.pyc
+│   │   ├── refactor_agent.cpython-312.pyc
+│   │   ├── repository_agent.cpython-312.pyc
+│   │   └── review_agent.cpython-312.pyc
+│   ├── ai
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── debug_agent.py
+│   │   ├── documentation_agent.py
+│   │   ├── planner_agent.py
+│   │   ├── refactor_agent.py
+│   │   ├── reviewer_agent.py
+│   │   └── test_agent.py
+│   ├── debug_agent.py
+│   ├── engineering
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── debug_agent.py
+│   │   ├── deployment_agent.py
+│   │   ├── documentation_agent.py
+│   │   ├── engineering_agent.py
+│   │   ├── github_agent.py
+│   │   ├── refactor_agent.py
+│   │   ├── repository_agent.py
+│   │   ├── review_agent.py
+│   │   └── testing_agent.py
+│   ├── engineering_agent.py
+│   ├── github_agent.py
+│   ├── planning_agent.py
+│   ├── refactor_agent.py
+│   ├── repository_agent.py
+│   └── review_agent.py
+├── ai
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── manager.cpython-312.pyc
+│   │   ├── provider.cpython-312.pyc
+│   │   └── runtime.cpython-312.pyc
+│   ├── context
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   └── builder.py
+│   ├── manager.py
+│   ├── provider.py
+│   ├── providers
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── base.py
+│   │   ├── mock.py
+│   │   └── openai.py
+│   └── runtime.py
+├── api
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── ai.cpython-312.pyc
+│   │   ├── health.cpython-312.pyc
+│   │   ├── inventory.cpython-312.pyc
+│   │   ├── memory.cpython-312.pyc
+│   │   ├── product.cpython-312.pyc
+│   │   ├── version.cpython-312.pyc
+│   │   └── weather.cpython-312.pyc
+│   ├── ai.py
+│   ├── github
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── branches.py
+│   │   ├── commits.py
+│   │   ├── legacy.py
+│   │   ├── pull_requests.py
+│   │   ├── repositories.py
+│   │   └── workflow.py
+│   ├── health.py
+│   ├── inventory.py
+│   ├── memory.py
+│   ├── product.py
+│   ├── version.py
+│   └── weather.py
+├── cli
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   └── odin.cpython-312.pyc
+│   └── odin.py
+├── config
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── ai.cpython-312.pyc
+│   │   ├── github.cpython-312.pyc
+│   │   ├── logging.cpython-312.pyc
+│   │   ├── providers.cpython-312.pyc
+│   │   ├── runtime.cpython-312.pyc
+│   │   └── settings.cpython-312.pyc
+│   ├── ai.py
+│   ├── github.py
+│   ├── logging.py
+│   ├── providers.py
+│   ├── runtime.py
+│   └── settings.py
+├── config.py
+├── core
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── config.cpython-312.pyc
+│   │   ├── container.cpython-312.pyc
+│   │   ├── dependencies.cpython-312.pyc
+│   │   ├── logger.cpython-312.pyc
+│   │   ├── odin.cpython-312.pyc
+│   │   └── settings.cpython-312.pyc
+│   ├── config.py
+│   ├── container.py
+│   ├── dependencies.py
+│   ├── logger.py
+│   ├── odin.py
+│   └── settings.py
+├── database
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── database.cpython-312.pyc
+│   │   └── init_db.cpython-312.pyc
+│   ├── database.py
+│   └── init_db.py
+├── devtools
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── test_branch.cpython-312.pyc
+│   │   ├── test_branches.cpython-312.pyc
+│   │   ├── test_kernel.cpython-312.pyc
+│   │   ├── test_modify_file.cpython-312.pyc
+│   │   ├── test_repo.cpython-312.pyc
+│   │   ├── test_repo_state.cpython-312.pyc
+│   │   └── test_workflow.cpython-312.pyc
+│   ├── generators
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── build_script_generator.py
+│   │   ├── patch_engine.py
+│   │   ├── python_module_generator.py
+│   │   └── template_engine.py
+│   ├── test_branch.py
+│   ├── test_branches.py
+│   ├── test_kernel.py
+│   ├── test_modify_file.py
+│   ├── test_repo.py
+│   ├── test_repo_state.py
+│   └── test_workflow.py
+├── engineering
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── engine.cpython-312.pyc
+│   │   ├── execution_engine.cpython-312.pyc
+│   │   ├── goal_engine.cpython-312.pyc
+│   │   ├── patch_engine.cpython-312.pyc
+│   │   ├── review_engine.cpython-312.pyc
+│   │   ├── session.cpython-312.pyc
+│   │   ├── state.cpython-312.pyc
+│   │   └── validation_engine.cpython-312.pyc
+│   ├── engine.py
+│   ├── execution_engine.py
+│   ├── goal_engine.py
+│   ├── patch_engine.py
+│   ├── review_engine.py
+│   ├── session.py
+│   ├── state.py
+│   └── validation_engine.py
+├── events
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── error.cpython-312.pyc
+│   │   ├── event.cpython-312.pyc
+│   │   ├── task_finished.cpython-312.pyc
+│   │   ├── task_started.cpython-312.pyc
+│   │   ├── tool_called.cpython-312.pyc
+│   │   ├── tool_completed.cpython-312.pyc
+│   │   ├── workflow_finished.cpython-312.pyc
+│   │   └── workflow_started.cpython-312.pyc
+│   ├── error.py
+│   ├── event.py
+│   ├── task_finished.py
+│   ├── task_started.py
+│   ├── tool_called.py
+│   ├── tool_completed.py
+│   ├── workflow_finished.py
+│   └── workflow_started.py
+├── generator
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── feature_generator.cpython-312.pyc
+│   │   └── generator.cpython-312.pyc
+│   ├── feature_generator.py
+│   ├── generator.py
+│   └── templates
+│       ├── __init__.py
+│       └── __pycache__
+├── goals
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── base_goal.cpython-312.pyc
+│   │   ├── debug_goal.cpython-312.pyc
+│   │   ├── documentation_goal.cpython-312.pyc
+│   │   ├── feature_goal.cpython-312.pyc
+│   │   ├── refactor_goal.cpython-312.pyc
+│   │   └── test_goal.cpython-312.pyc
+│   ├── base_goal.py
+│   ├── debug_goal.py
+│   ├── documentation_goal.py
+│   ├── feature_goal.py
+│   ├── refactor_goal.py
+│   └── test_goal.py
+├── kernel
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── kernel.cpython-312.pyc
+│   │   └── registry.cpython-312.pyc
+│   ├── kernel.py
+│   └── registry.py
+├── knowledge
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── context_store.cpython-312.pyc
+│   │   ├── embeddings.cpython-312.pyc
+│   │   ├── file_cache.cpython-312.pyc
+│   │   ├── repository_cache.cpython-312.pyc
+│   │   ├── session_store.cpython-312.pyc
+│   │   ├── symbol_cache.cpython-312.pyc
+│   │   └── vector_index.cpython-312.pyc
+│   ├── context_store.py
+│   ├── embeddings.py
+│   ├── file_cache.py
+│   ├── repository_cache.py
+│   ├── session_store.py
+│   ├── symbol_cache.py
+│   └── vector_index.py
+├── logging.py
+├── main.py
+├── memory
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── cache.cpython-312.pyc
+│   │   ├── repository_memory.cpython-312.pyc
+│   │   ├── session_memory.cpython-312.pyc
+│   │   ├── store.cpython-312.pyc
+│   │   └── workflow_memory.cpython-312.pyc
+│   ├── cache.py
+│   ├── repository_memory.py
+│   ├── session_memory.py
+│   ├── store.py
+│   └── workflow_memory.py
+├── models
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── call_graph.cpython-312.pyc
+│   │   ├── error_report.cpython-312.pyc
+│   │   ├── file_index.cpython-312.pyc
+│   │   ├── inventory.cpython-312.pyc
+│   │   ├── memory.cpython-312.pyc
+│   │   ├── patch.cpython-312.pyc
+│   │   ├── product.cpython-312.pyc
+│   │   ├── repository.cpython-312.pyc
+│   │   ├── symbol.cpython-312.pyc
+│   │   └── workflow_result.cpython-312.pyc
+│   ├── ai
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── completion.py
+│   │   ├── conversation.py
+│   │   ├── message.py
+│   │   ├── prompt.py
+│   │   ├── provider_response.py
+│   │   ├── token_usage.py
+│   │   ├── tool_call.py
+│   │   └── tool_result.py
+│   ├── call_graph.py
+│   ├── code
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── call.py
+│   │   ├── class_model.py
+│   │   ├── context.py
+│   │   ├── exception.py
+│   │   ├── file.py
+│   │   ├── function.py
+│   │   ├── import_model.py
+│   │   ├── method.py
+│   │   ├── reference.py
+│   │   ├── repository_index.py
+│   │   └── symbol.py
+│   ├── error_report.py
+│   ├── file_index.py
+│   ├── inventory.py
+│   ├── memory.py
+│   ├── patch.py
+│   ├── planner
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── context.py
+│   │   ├── execution.py
+│   │   ├── goal.py
+│   │   ├── plan.py
+│   │   ├── step.py
+│   │   ├── task.py
+│   │   └── workflow.py
+│   ├── product.py
+│   ├── repository
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── analysis.py
+│   │   ├── call.py
+│   │   ├── class_model.py
+│   │   ├── error.py
+│   │   ├── file.py
+│   │   ├── function.py
+│   │   ├── import_model.py
+│   │   └── index.py
+│   ├── repository.py
+│   ├── symbol.py
+│   └── workflow_result.py
+├── pipeline
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── analyze_stage.cpython-312.pyc
+│   │   ├── context.cpython-312.pyc
+│   │   ├── patch_stage.cpython-312.pyc
+│   │   ├── pipeline.cpython-312.pyc
+│   │   ├── plan_stage.cpython-312.pyc
+│   │   ├── pr_stage.cpython-312.pyc
+│   │   ├── result.cpython-312.pyc
+│   │   ├── review_stage.cpython-312.pyc
+│   │   ├── stage.cpython-312.pyc
+│   │   └── test_stage.cpython-312.pyc
+│   ├── analyze_stage.py
+│   ├── context.py
+│   ├── patch_stage.py
+│   ├── pipeline.py
+│   ├── plan_stage.py
+│   ├── pr_stage.py
+│   ├── result.py
+│   ├── review_stage.py
+│   ├── stage.py
+│   └── test_stage.py
+├── planner
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── context_builder.cpython-312.pyc
+│   │   ├── context_manager.cpython-312.pyc
+│   │   ├── engineering_planner.cpython-312.pyc
+│   │   ├── execution_engine.cpython-312.pyc
+│   │   ├── execution_graph.cpython-312.pyc
+│   │   ├── execution_plan.cpython-312.pyc
+│   │   ├── executor.cpython-312.pyc
+│   │   ├── goal.cpython-312.pyc
+│   │   ├── memory.cpython-312.pyc
+│   │   ├── planner.cpython-312.pyc
+│   │   ├── repository_planner.cpython-312.pyc
+│   │   ├── strategy.cpython-312.pyc
+│   │   ├── task.cpython-312.pyc
+│   │   ├── task_graph.cpython-312.pyc
+│   │   ├── validator.cpython-312.pyc
+│   │   └── workflow_selector.cpython-312.pyc
+│   ├── context_builder.py
+│   ├── context_manager.py
+│   ├── engineering_planner.py
+│   ├── execution_engine.py
+│   ├── execution_graph.py
+│   ├── execution_plan.py
+│   ├── executor.py
+│   ├── goal.py
+│   ├── memory.py
+│   ├── planner.py
+│   ├── repository_planner.py
+│   ├── strategy.py
+│   ├── task.py
+│   ├── task_graph.py
+│   ├── validator.py
+│   └── workflow_selector.py
+├── plugins
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── base.cpython-312.pyc
+│   │   ├── github.cpython-312.pyc
+│   │   ├── health.cpython-312.pyc
+│   │   ├── inventory.cpython-312.pyc
+│   │   ├── loader.cpython-312.pyc
+│   │   └── product.cpython-312.pyc
+│   ├── base.py
+│   ├── github.py
+│   ├── health.py
+│   ├── inventory.py
+│   ├── loader.py
+│   └── product.py
+├── prompts
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── code_review.cpython-312.pyc
+│   │   ├── debugging.cpython-312.pyc
+│   │   ├── engineering.cpython-312.pyc
+│   │   ├── planning.cpython-312.pyc
+│   │   ├── refactoring.cpython-312.pyc
+│   │   ├── repository.cpython-312.pyc
+│   │   └── system_prompt.cpython-312.pyc
+│   ├── code_review.py
+│   ├── debugging.py
+│   ├── engineering.py
+│   ├── planning.py
+│   ├── refactoring.py
+│   ├── repository.py
+│   └── system_prompt.py
+├── providers
+│   └── ai
+│       ├── __init__.py
+│       ├── __pycache__
+│       ├── anthropic_provider.py
+│       ├── base.py
+│       ├── factory.py
+│       ├── google_provider.py
+│       ├── mock_provider.py
+│       ├── ollama_provider.py
+│       ├── openai_provider.py
+│       └── provider.py
+├── registry
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   └── tool_registry.cpython-312.pyc
+│   └── tool_registry.py
+├── repositories
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── customer_repository.cpython-312.pyc
+│   │   ├── inventory_repository.cpython-312.pyc
+│   │   └── product_repository.cpython-312.pyc
+│   ├── customer_repository.py
+│   ├── inventory_repository.py
+│   └── product_repository.py
+├── repository
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── index.cpython-312.pyc
+│   │   ├── loader.cpython-312.pyc
+│   │   ├── models.cpython-312.pyc
+│   │   ├── parser.cpython-312.pyc
+│   │   ├── query.cpython-312.pyc
+│   │   ├── repository.cpython-312.pyc
+│   │   └── tracer.cpython-312.pyc
+│   ├── analysis
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── health.py
+│   │   ├── models.py
+│   │   ├── pipeline.py
+│   │   └── results.py
+│   ├── extractors
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── call_extractor.py
+│   │   ├── import_extractor.py
+│   │   └── symbol_extractor.py
+│   ├── graph
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── call_graph.py
+│   │   └── import_graph.py
+│   ├── index.py
+│   ├── ir
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── analysis.py
+│   │   ├── builder.py
+│   │   └── query.py
+│   ├── loader.py
+│   ├── models.py
+│   ├── parser.py
+│   ├── query.py
+│   ├── repository.py
+│   ├── resolution
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── engine.py
+│   │   ├── models.py
+│   │   ├── scope_tracker.py
+│   │   └── symbol_resolver.py
+│   └── tracer.py
+├── schemas
+│   ├── __pycache__
+│   │   └── product.cpython-312.pyc
+│   └── product.py
+├── sdk
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── context.cpython-312.pyc
+│   │   ├── plugin.cpython-312.pyc
+│   │   └── tool.cpython-312.pyc
+│   ├── context.py
+│   ├── plugin.py
+│   └── tool.py
+├── services
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── ai_service.cpython-312.pyc
+│   │   ├── base.cpython-312.pyc
+│   │   ├── container.cpython-312.pyc
+│   │   ├── discord_service.cpython-312.pyc
+│   │   ├── github_service.cpython-312.pyc
+│   │   ├── health_service.cpython-312.pyc
+│   │   ├── inventory_service.cpython-312.pyc
+│   │   ├── memory_service.cpython-312.pyc
+│   │   ├── product_service.cpython-312.pyc
+│   │   └── weather_service.cpython-312.pyc
+│   ├── ai_service.py
+│   ├── base.py
+│   ├── code_intelligence
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── ast_parser.py
+│   │   ├── call_graph.py
+│   │   ├── context_builder.py
+│   │   ├── control_flow.py
+│   │   ├── dependency_graph.py
+│   │   ├── exception_tracer.py
+│   │   ├── file_index.py
+│   │   ├── import_graph.py
+│   │   ├── inheritance_graph.py
+│   │   ├── reference_finder.py
+│   │   ├── repository_indexer.py
+│   │   ├── symbol_table.py
+│   │   └── type_resolver.py
+│   ├── container.py
+│   ├── discord_service.py
+│   ├── engineering
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   └── service.py
+│   ├── github
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── branches.py
+│   │   ├── client.py
+│   │   ├── commits.py
+│   │   ├── contents.py
+│   │   ├── operations.py
+│   │   ├── provider.py
+│   │   ├── pull_requests.py
+│   │   └── repositories.py
+│   ├── github_service.py
+│   ├── github_service.py.bak
+│   ├── health_service.py
+│   ├── inventory_service.py
+│   ├── memory_service.py
+│   ├── product_service.py
+│   ├── repository
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   ├── callgraph.py
+│   │   ├── dependencies.py
+│   │   ├── file_loader.py
+│   │   ├── indexer.py
+│   │   ├── parser.py
+│   │   ├── provider.py
+│   │   └── search.py
+│   └── weather_service.py
+├── skills
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── find_bug.cpython-312.pyc
+│   │   ├── find_symbol.cpython-312.pyc
+│   │   ├── generate_patch.cpython-312.pyc
+│   │   ├── open_pull_request.cpython-312.pyc
+│   │   ├── read_repository.cpython-312.pyc
+│   │   ├── review_patch.cpython-312.pyc
+│   │   ├── run_tests.cpython-312.pyc
+│   │   └── trace_exception.cpython-312.pyc
+│   ├── find_bug.py
+│   ├── find_symbol.py
+│   ├── generate_patch.py
+│   ├── open_pull_request.py
+│   ├── read_repository.py
+│   ├── review_patch.py
+│   ├── run_tests.py
+│   └── trace_exception.py
+├── tooling
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── tool.cpython-312.pyc
+│   │   ├── tool_executor.cpython-312.pyc
+│   │   ├── tool_registry.cpython-312.pyc
+│   │   └── tool_result.cpython-312.pyc
+│   ├── docker
+│   ├── filesystem
+│   ├── github
+│   ├── repository
+│   ├── testing
+│   ├── tool.py
+│   ├── tool_executor.py
+│   ├── tool_registry.py
+│   └── tool_result.py
+├── tools
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── base.cpython-312.pyc
+│   │   ├── docker_tool.cpython-312.pyc
+│   │   ├── filesystem_tool.cpython-312.pyc
+│   │   ├── github_repository.cpython-312.pyc
+│   │   ├── github_tool.cpython-312.pyc
+│   │   ├── health_tool.cpython-312.pyc
+│   │   ├── registry.cpython-312.pyc
+│   │   ├── repository_tool.cpython-312.pyc
+│   │   ├── testing_tool.cpython-312.pyc
+│   │   └── tool_registry.cpython-312.pyc
+│   ├── base.py
+│   ├── docker_tool.py
+│   ├── filesystem_tool.py
+│   ├── github_repository.py
+│   ├── github_tool.py
+│   ├── health_tool.py
+│   ├── registry.py
+│   ├── repository_tool.py
+│   ├── testing_tool.py
+│   └── tool_registry.py
+├── utils
+│   ├── __init__.py
+│   └── __pycache__
+│       └── __init__.cpython-312.pyc
+├── workflow
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── engine.cpython-312.pyc
+│   │   ├── executor.cpython-312.pyc
+│   │   ├── models.cpython-312.pyc
+│   │   ├── planner.cpython-312.pyc
+│   │   └── reviewer.cpython-312.pyc
+│   ├── engine.py
+│   ├── executor.py
+│   ├── models.py
+│   ├── planner.py
+│   └── reviewer.py
+├── workflow_engine
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── context.cpython-312.pyc
+│   │   ├── discovery.cpython-312.pyc
+│   │   ├── executor.cpython-312.pyc
+│   │   ├── metadata.cpython-312.pyc
+│   │   ├── registry.cpython-312.pyc
+│   │   ├── result.cpython-312.pyc
+│   │   └── workflow.cpython-312.pyc
+│   ├── context.py
+│   ├── discovery.py
+│   ├── executor.py
+│   ├── metadata.py
+│   ├── registry.py
+│   ├── result.py
+│   └── workflow.py
+└── workflows
+    ├── __init__.py
+    ├── __pycache__
+    │   ├── __init__.cpython-312.pyc
+    │   └── base.cpython-312.pyc
+    ├── ai
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   ├── analyze_code.py
+    │   ├── chat.py
+    │   ├── debug_code.py
+    │   ├── generate_patch.py
+    │   ├── refactor_code.py
+    │   ├── review_code.py
+    │   ├── summarize_repository.py
+    │   └── write_tests.py
+    ├── base.py
+    ├── engineering
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   ├── analyze_dependencies.py
+    │   ├── analyze_repository.py
+    │   ├── apply_patch.py
+    │   ├── build_call_graph.py
+    │   ├── build_file_index.py
+    │   ├── build_import_graph.py
+    │   ├── create_fix_pr.py
+    │   ├── find_dead_code.py
+    │   ├── find_symbol.py
+    │   ├── index_repository.py
+    │   ├── propose_patch.py
+    │   ├── repository_summary.py
+    │   ├── run_tests.py
+    │   └── trace_exception.py
+    ├── github
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   └── modify_file.py
+    ├── intelligence
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   ├── build_call_graph.py
+    │   ├── build_context.py
+    │   ├── build_dependency_graph.py
+    │   ├── find_references.py
+    │   ├── find_symbol.py
+    │   ├── index_file.py
+    │   ├── index_repository.py
+    │   └── trace_exception.py
+    ├── planning
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   ├── analyze_goal.py
+    │   ├── build_plan.py
+    │   ├── execute_plan.py
+    │   ├── select_workflows.py
+    │   └── validate_plan.py
+    └── runtime
+        ├── __init__.py
+        ├── __pycache__
+        ├── approve_changes.py
+        ├── execute_goal.py
+        ├── execute_task.py
+        ├── recover_session.py
+        ├── rollback_changes.py
+        └── start_session.py
+
+128 directories, 630 files

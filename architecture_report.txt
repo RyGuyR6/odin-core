@@ -1,0 +1,1669 @@
+==========================================
+        ODIN ARCHITECTURE REPORT
+==========================================
+
+==========================================
+odin_mcp/server.py
+==========================================
+"""Odin MCP server."""
+
+from __future__ import annotations
+
+from importlib.metadata import version
+from pathlib import Path
+import platform
+import sys
+
+
+# Allow both:
+#   python -m odin_mcp.server
+#   python odin_mcp/server.py
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+from mcp.server.fastmcp import FastMCP
+
+from odin_mcp.tools.git import register_git_tools
+from odin_mcp.tools.filesystem import register_filesystem_tools
+from odin_mcp.tools.repository_search import register_repository_search_tools
+from odin_mcp.tools.repository_intelligence import register_repository_intelligence_tools
+from odin_mcp.tools.repository_patch import register_patch_tools
+from odin_mcp.tools.engineering import register_engineering_tools
+from odin_mcp.tools.odin import register_odin_tools
+
+
+mcp = FastMCP(
+    "Odin",
+    host="0.0.0.0",
+    port=8000,
+    stateless_http=True,
+    json_response=True,
+)
+
+
+@mcp.tool()
+def ping() -> str:
+    """Check whether the Odin MCP server is online."""
+
+    return "Odin MCP is online."
+
+
+@mcp.tool(name="odin.info")
+def odin_info() -> dict[str, object]:
+    """Return information about the running Odin MCP server."""
+
+    return {
+        "name": "Odin",
+        "version": "0.1.0",
+        "mcp_sdk": version("mcp"),
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "transport": "streamable-http",
+        "status": "online",
+    }
+
+
+register_git_tools(mcp)
+register_filesystem_tools(mcp)
+register_repository_search_tools(mcp)
+register_repository_intelligence_tools(mcp)
+register_patch_tools(mcp)
+register_engineering_tools(mcp)
+register_odin_tools(mcp)
+
+
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
+==========================================
+odin_mcp/core/orchestrator.py
+==========================================
+from __future__ import annotations
+
+from pathlib import Path
+
+from odin_mcp.models.engineering_goal import EngineeringGoal
+from odin_mcp.services.goal_planner import GoalPlanner
+from odin_mcp.services.repository_planner import RepositoryPlanner
+from odin_mcp.services.engineering_planner import EngineeringPlanner
+from odin_mcp.services.autonomous_executor import AutonomousExecutor
+from odin_mcp.services.repository_search_service import RepositorySearchService
+from odin_mcp.services.engineering_service import EngineeringService
+from odin_mcp.services.task_executor import EngineeringTaskExecutor
+from odin_mcp.services.plan_executor import EngineeringPlanExecutor
+
+
+class Odin:
+
+    """
+    Main autonomous engineering orchestrator.
+
+    Future API:
+
+        odin.execute(
+            "Add JWT authentication."
+        )
+    """
+
+    def __init__(
+        self,
+        repo_root: Path,
+    ) -> None:
+
+        self.goal_planner = GoalPlanner()
+
+        self.repository_search = RepositorySearchService(
+            repo_root
+        )
+
+        self.repository_planner = RepositoryPlanner(
+            self.repository_search
+        )
+
+        self.engineering_service = EngineeringService(
+            repo_root
+        )
+
+        self.engineering_planner = EngineeringPlanner()
+
+        self.task_executor = EngineeringTaskExecutor(
+            self.engineering_service
+        )
+
+        self.plan_executor = EngineeringPlanExecutor(
+            self.task_executor
+        )
+
+        self.executor = AutonomousExecutor(
+            self.plan_executor,
+            repo_root,
+        )
+
+    def execute(
+        self,
+        request: str,
+    ):
+
+        goal = EngineeringGoal(
+            request=request,
+        )
+
+        phases = self.goal_planner.create_breakdown(
+            goal
+        )
+
+        analysis = self.repository_planner.analyze(
+            request
+        )
+
+        return {
+            "goal": goal,
+            "phases": phases,
+            "analysis": analysis,
+        }
+
+==========================================
+odin_mcp/core/execute.py
+==========================================
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from odin_mcp.core.orchestrator import Odin
+from odin_mcp.core.brain_pipeline import BrainPipeline
+from odin_mcp.core.brain_execution import BrainExecutionPipeline
+
+
+@dataclass(slots=True)
+class ExecuteResponse:
+
+    success: bool
+
+    goal: str
+
+    context: object
+
+
+class OdinExecuteAPI:
+
+    """
+    Public entrypoint for Odin.
+
+    Everything eventually calls this.
+
+        MCP
+        REST
+        CLI
+        Dashboard
+        Scheduler
+        GitHub
+    """
+
+    def __init__(
+        self,
+        repo_root: Path,
+    ):
+
+        self.odin = Odin(repo_root)
+
+        self.pipeline = BrainPipeline(
+            self.odin.brain
+        )
+
+        self.execution = BrainExecutionPipeline(
+            self.odin.brain
+        )
+
+    def execute(
+        self,
+        goal: str,
+    ) -> ExecuteResponse:
+
+        context = self.odin.brain.create_context(
+            goal
+        )
+
+        context = self.pipeline.run(
+            context
+        )
+
+        #
+        # Execution disabled for now.
+        #
+        # Uncomment once planning
+        # becomes repository-aware.
+        #
+        # context = self.execution.execute(context)
+        #
+
+        return ExecuteResponse(
+            success=True,
+            goal=goal,
+            context=context,
+        )
+
+==========================================
+odin_mcp/core/brain.py
+==========================================
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from odin_mcp.models.decision_graph import DecisionGraph
+
+
+@dataclass(slots=True)
+class BrainContext:
+    goal: str
+    repository_analysis: Any = None
+    engineering_plan: Any = None
+    execution_result: Any = None
+    validation_result: Any = None
+    decision_graph: DecisionGraph = field(default_factory=DecisionGraph)
+
+
+class OdinBrain:
+    """
+    Central coordinator for Odin.
+
+    The Brain owns the complete engineering lifecycle.
+    Individual services remain responsible for their own
+    domain logic.
+    """
+
+    def __init__(self):
+        self._services: dict[str, Any] = {}
+
+    def register(
+        self,
+        name: str,
+        service: Any,
+    ) -> None:
+        self._services[name] = service
+
+    def service(
+        self,
+        name: str,
+    ) -> Any:
+        return self._services[name]
+
+    def create_context(
+        self,
+        goal: str,
+    ) -> BrainContext:
+
+        context = BrainContext(goal=goal)
+
+        context.decision_graph.add_node(
+            "goal",
+            goal,
+            "goal",
+        )
+
+        return context
+
+==========================================
+odin_mcp/services/engineering_service.py
+==========================================
+from __future__ import annotations
+
+from typing import Any
+
+from odin_mcp.services.filesystem_service import FilesystemService
+from odin_mcp.services.git_service import GitService
+from odin_mcp.services.patch_service import PatchService
+from odin_mcp.services.repository_search_service import (
+    RepositorySearchService,
+)
+
+
+class EngineeringService:
+    """
+    High-level engineering workflows for Odin.
+
+    This service composes the lower-level filesystem,
+    repository, patch, and git services into reusable
+    engineering operations.
+    """
+
+    def __init__(self) -> None:
+        self.fs = FilesystemService()
+        self.git = GitService()
+        self.patch = PatchService()
+        self.search = RepositorySearchService()
+
+    def status(self) -> dict[str, Any]:
+        """Return an engineering status snapshot."""
+
+        return {
+            "git": self.git.status(),
+            "repository_root": str(self.search.root),
+            "filesystem_writes": self.fs.writes_enabled,
+            "git_writes": self.git.writes_enabled,
+        }
+
+    def replace_text(
+        self,
+        *,
+        path: str,
+        old: str,
+        new: str,
+    ) -> dict[str, Any]:
+        """
+        Replace text in a repository file.
+        """
+
+        return self.patch.replace(
+            path=path,
+            old=old,
+            new=new,
+        )
+
+    def edit_file(
+        self,
+        *,
+        path: str,
+        contents: str,
+    ) -> dict[str, Any]:
+        """
+        Overwrite a repository file.
+        """
+
+        return self.fs.write(
+            path=path,
+            contents=contents,
+        )
+
+    def read_file(
+        self,
+        *,
+        path: str,
+    ) -> dict[str, Any]:
+        """
+        Read a repository file.
+        """
+
+        return self.fs.read(path)
+
+    def search_text(
+        self,
+        *,
+        text: str,
+        max_results: int = 100,
+    ) -> dict[str, Any]:
+        """
+        Search the repository.
+        """
+
+        return self.search.search(
+            text=text,
+            max_results=max_results,
+        )
+
+    def apply_change(
+        self,
+        *,
+        path: str,
+        old: str,
+        new: str,
+        stage: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Replace text and optionally stage the file.
+        """
+
+        result = self.patch.replace(
+            path=path,
+            old=old,
+            new=new,
+        )
+
+        if stage:
+            stage_result = self.git.stage([path])
+            result["stage"] = stage_result
+
+        return result
+
+    def commit_changes(
+        self,
+        *,
+        message: str,
+    ) -> dict[str, Any]:
+        """
+        Commit staged changes.
+        """
+
+        return self.git.commit(message)
+
+    def fix_file(
+        self,
+        *,
+        path: str,
+        old: str,
+        new: str,
+        commit_message: str,
+    ) -> dict[str, Any]:
+        """
+        Apply a replacement, stage the file,
+        and create a Git commit.
+        """
+
+        replace_result = self.patch.replace(
+            path=path,
+            old=old,
+            new=new,
+        )
+
+        stage_result = self.git.stage([path])
+
+        commit_result = self.git.commit(
+            commit_message,
+        )
+
+        return {
+            "replace": replace_result,
+            "stage": stage_result,
+            "commit": commit_result,
+        }
+
+    def submit_change(
+        self,
+        *,
+        path: str,
+        old: str,
+        new: str,
+        commit_message: str,
+        remote: str = "origin",
+        branch: str | None = None,
+        push: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Replace, stage, commit, and optionally push.
+        """
+
+        workflow = self.fix_file(
+            path=path,
+            old=old,
+            new=new,
+            commit_message=commit_message,
+        )
+
+        if push:
+            workflow["push"] = self.git.push(
+                remote=remote,
+                branch=branch,
+            )
+
+        return workflow
+
+
+==========================================
+odin_mcp/services/git_service.py
+==========================================
+"""Git operations used by Odin MCP tools."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import re
+import subprocess
+from typing import Sequence
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+_WRITE_TRUE_VALUES = {"1", "true", "yes", "on"}
+_SAFE_REF_PATTERN = re.compile(r"^[A-Za-z0-9._/@+-]+$")
+
+
+class GitServiceError(RuntimeError):
+    """Raised when a Git operation fails."""
+
+
+class GitWriteDisabledError(GitServiceError):
+    """Raised when a write operation is attempted while writes are disabled."""
+
+
+class GitService:
+    """Provide controlled Git access to the Odin repository."""
+
+    def __init__(
+        self,
+        repository_root: Path = REPOSITORY_ROOT,
+        max_output_characters: int = 30_000,
+    ) -> None:
+        self.repository_root = repository_root.resolve()
+        self.max_output_characters = max_output_characters
+
+        if not (self.repository_root / ".git").exists():
+            raise GitServiceError(
+                f"Not a Git repository: {self.repository_root}"
+            )
+
+    @property
+    def writes_enabled(self) -> bool:
+        """Return whether Git write operations are enabled."""
+
+        value = os.getenv("ODIN_GIT_WRITE_ENABLED", "false")
+        return value.strip().lower() in _WRITE_TRUE_VALUES
+
+    def _require_writes_enabled(self) -> None:
+        if not self.writes_enabled:
+            raise GitWriteDisabledError(
+                "Git writes are disabled. Set "
+                "ODIN_GIT_WRITE_ENABLED=true before starting the MCP server."
+            )
+
+    def _truncate(self, value: str) -> str:
+        if len(value) <= self.max_output_characters:
+            return value
+
+        removed = len(value) - self.max_output_characters
+        return (
+            value[: self.max_output_characters]
+            + f"\n\n[Output truncated; {removed} characters omitted.]"
+        )
+
+    def _run(
+        self,
+        *arguments: str,
+        timeout: int = 30,
+    ) -> str:
+        try:
+            result = subprocess.run(
+                ["git", *arguments],
+                cwd=self.repository_root,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitServiceError(
+                f"Git command timed out after {timeout} seconds."
+            ) from exc
+
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        if result.returncode != 0:
+            message = stderr or stdout or "Unknown Git error."
+            raise GitServiceError(message)
+
+        return self._truncate(stdout)
+
+    @staticmethod
+    def _validate_ref(value: str, label: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise GitServiceError(f"{label} cannot be empty.")
+
+        if value.startswith("-") or not _SAFE_REF_PATTERN.fullmatch(value):
+            raise GitServiceError(f"Invalid {label}: {value!r}")
+
+        return value
+
+    def _validate_paths(self, paths: Sequence[str]) -> list[str]:
+        if not paths:
+            raise GitServiceError("At least one path is required.")
+
+        validated: list[str] = []
+
+        for raw_path in paths:
+            candidate = Path(raw_path)
+
+            if candidate.is_absolute() or ".." in candidate.parts:
+                raise GitServiceError(
+                    f"Path must remain inside the repository: {raw_path!r}"
+                )
+
+            resolved = (self.repository_root / candidate).resolve()
+
+            try:
+                resolved.relative_to(self.repository_root)
+            except ValueError as exc:
+                raise GitServiceError(
+                    f"Path escapes the repository: {raw_path!r}"
+                ) from exc
+
+            validated.append(candidate.as_posix())
+
+        return validated
+
+    def branch(self) -> str:
+        """Return the current branch name."""
+
+        branch = self._run("branch", "--show-current")
+
+        if branch:
+            return branch
+
+        return self._run("rev-parse", "--short", "HEAD")
+
+    def status(self) -> dict[str, object]:
+        """Return machine-readable repository status."""
+
+        porcelain = self._run("status", "--short")
+        files = porcelain.splitlines() if porcelain else []
+
+        return {
+            "branch": self.branch(),
+            "clean": not files,
+            "changed_file_count": len(files),
+            "files": files,
+            "writes_enabled": self.writes_enabled,
+        }
+
+    def diff(self, staged: bool = False) -> dict[str, object]:
+        """Return the working-tree or staged diff."""
+
+        arguments = ["diff"]
+
+        if staged:
+            arguments.append("--staged")
+
+        output = self._run(*arguments)
+
+        return {
+            "staged": staged,
+            "empty": not output,
+            "diff": output,
+        }
+
+    def log(self, limit: int = 10) -> dict[str, object]:
+        """Return recent commits."""
+
+        safe_limit = max(1, min(limit, 50))
+
+        output = self._run(
+            "log",
+            f"-{safe_limit}",
+            "--date=iso-strict",
+            "--pretty=format:%H%x09%an%x09%ad%x09%s",
+        )
+
+        commits: list[dict[str, str]] = []
+
+        for line in output.splitlines():
+            parts = line.split("\t", 3)
+
+            if len(parts) != 4:
+                continue
+
+            sha, author, date, subject = parts
+            commits.append(
+                {
+                    "sha": sha,
+                    "author": author,
+                    "date": date,
+                    "subject": subject,
+                }
+            )
+
+        return {
+            "count": len(commits),
+            "commits": commits,
+        }
+
+    def stage(self, paths: Sequence[str]) -> dict[str, object]:
+        """Stage repository paths."""
+
+        self._require_writes_enabled()
+        validated_paths = self._validate_paths(paths)
+
+        self._run("add", "--", *validated_paths)
+
+        return {
+            "staged": validated_paths,
+            "status": self.status(),
+        }
+
+    def commit(self, message: str) -> dict[str, object]:
+        """Create a commit from currently staged changes."""
+
+        self._require_writes_enabled()
+
+        cleaned_message = message.strip()
+
+        if not cleaned_message:
+            raise GitServiceError("Commit message cannot be empty.")
+
+        if len(cleaned_message) > 500:
+            raise GitServiceError(
+                "Commit message cannot exceed 500 characters."
+            )
+
+        # Determine staged files using --name-only.
+        # `git diff --staged --name-only` for a normal successful command.
+        staged_files_output = self._run(
+            "diff",
+            "--staged",
+            "--name-only",
+        )
+        staged_files = staged_files_output.splitlines()
+
+        if not staged_files:
+            raise GitServiceError("There are no staged changes to commit.")
+
+        self._run("commit", "-m", cleaned_message, timeout=60)
+        commit_sha = self._run("rev-parse", "HEAD")
+
+
+==========================================
+odin_mcp/services/filesystem_service.py
+==========================================
+"""Safe repository filesystem operations for Odin MCP."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import tempfile
+from typing import Any
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+_WRITE_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+class FilesystemServiceError(RuntimeError):
+    """Raised when a repository filesystem operation fails."""
+
+
+class RepositoryWriteDisabledError(FilesystemServiceError):
+    """Raised when repository writes are disabled."""
+
+
+class FilesystemService:
+    """Provide filesystem access constrained to the repository root."""
+
+    def __init__(
+        self,
+        repository_root: Path = REPOSITORY_ROOT,
+        max_read_bytes: int = 1_000_000,
+        max_write_bytes: int = 1_000_000,
+        max_directory_entries: int = 1_000,
+    ) -> None:
+        self.repository_root = repository_root.resolve()
+        self.max_read_bytes = max_read_bytes
+        self.max_write_bytes = max_write_bytes
+        self.max_directory_entries = max_directory_entries
+
+        if not self.repository_root.is_dir():
+            raise FilesystemServiceError(
+                f"Repository root does not exist: {self.repository_root}"
+            )
+
+    @property
+    def writes_enabled(self) -> bool:
+        """Return whether repository filesystem writes are enabled."""
+
+        value = os.getenv("ODIN_REPO_WRITE_ENABLED", "false")
+        return value.strip().lower() in _WRITE_TRUE_VALUES
+
+    def _require_writes_enabled(self) -> None:
+        if not self.writes_enabled:
+            raise RepositoryWriteDisabledError(
+                "Repository writes are disabled. Set "
+                "ODIN_REPO_WRITE_ENABLED=true before starting the MCP server."
+            )
+
+    def _resolve(self, path: str, *, allow_root: bool = True) -> Path:
+        """Resolve a repository-relative path without allowing escape."""
+
+        cleaned = path.strip()
+
+        if cleaned in {"", "."}:
+            if allow_root:
+                return self.repository_root
+
+            raise FilesystemServiceError("A file or directory path is required.")
+
+        candidate = Path(cleaned)
+
+        if candidate.is_absolute():
+            raise FilesystemServiceError(
+                f"Absolute paths are not allowed: {path!r}"
+            )
+
+        if ".." in candidate.parts:
+            raise FilesystemServiceError(
+                f"Parent traversal is not allowed: {path!r}"
+            )
+
+        resolved = (self.repository_root / candidate).resolve(strict=False)
+
+        try:
+            resolved.relative_to(self.repository_root)
+        except ValueError as exc:
+            raise FilesystemServiceError(
+                f"Path escapes the repository: {path!r}"
+            ) from exc
+
+        return resolved
+
+    def _relative(self, path: Path) -> str:
+        relative = path.relative_to(self.repository_root).as_posix()
+        return relative or "."
+
+    def exists(self, path: str) -> dict[str, Any]:
+        """Return whether a repository-relative path exists."""
+
+        resolved = self._resolve(path)
+
+        return {
+            "path": self._relative(resolved),
+            "exists": resolved.exists(),
+            "is_file": resolved.is_file(),
+            "is_directory": resolved.is_dir(),
+        }
+
+    def read(self, path: str) -> dict[str, Any]:
+        """Read a UTF-8 text file inside the repository."""
+
+        resolved = self._resolve(path, allow_root=False)
+
+        if not resolved.exists():
+            raise FilesystemServiceError(
+                f"File does not exist: {self._relative(resolved)}"
+            )
+
+        if not resolved.is_file():
+            raise FilesystemServiceError(
+                f"Path is not a file: {self._relative(resolved)}"
+            )
+
+        size = resolved.stat().st_size
+
+        if size > self.max_read_bytes:
+            raise FilesystemServiceError(
+                f"File exceeds the {self.max_read_bytes}-byte read limit: "
+                f"{self._relative(resolved)}"
+            )
+
+        try:
+            contents = resolved.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise FilesystemServiceError(
+                f"File is not valid UTF-8 text: {self._relative(resolved)}"
+            ) from exc
+
+        return {
+            "path": self._relative(resolved),
+            "size_bytes": size,
+            "line_count": len(contents.splitlines()),
+            "contents": contents,
+        }
+
+    def write(
+        self,
+        path: str,
+        contents: str,
+        create_parents: bool = True,
+    ) -> dict[str, Any]:
+        """Atomically write a UTF-8 text file inside the repository."""
+
+        self._require_writes_enabled()
+
+        resolved = self._resolve(path, allow_root=False)
+        encoded = contents.encode("utf-8")
+
+        if len(encoded) > self.max_write_bytes:
+            raise FilesystemServiceError(
+                f"Contents exceed the {self.max_write_bytes}-byte write limit."
+            )
+
+        if resolved.exists() and resolved.is_dir():
+            raise FilesystemServiceError(
+                f"Cannot write over a directory: {self._relative(resolved)}"
+            )
+
+        if create_parents:
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+        elif not resolved.parent.exists():
+            raise FilesystemServiceError(
+                f"Parent directory does not exist: "
+                f"{self._relative(resolved.parent)}"
+            )
+
+        existed_before = resolved.exists()
+
+        temporary_path: Path | None = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=resolved.parent,
+                prefix=f".{resolved.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary_file:
+                temporary_file.write(contents)
+                temporary_path = Path(temporary_file.name)
+
+            temporary_path.replace(resolved)
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()
+
+        return {
+            "path": self._relative(resolved),
+            "created": not existed_before,
+            "updated": existed_before,
+            "size_bytes": len(encoded),
+        }
+
+    def mkdir(
+        self,
+        path: str,
+        parents: bool = True,
+        exist_ok: bool = True,
+    ) -> dict[str, Any]:
+        """Create a directory inside the repository."""
+
+        self._require_writes_enabled()
+
+        resolved = self._resolve(path, allow_root=False)
+        existed_before = resolved.exists()
+
+        if existed_before and not resolved.is_dir():
+            raise FilesystemServiceError(
+                f"Path exists and is not a directory: "
+                f"{self._relative(resolved)}"
+            )
+
+        resolved.mkdir(parents=parents, exist_ok=exist_ok)
+
+        return {
+            "path": self._relative(resolved),
+            "created": not existed_before,
+            "exists": resolved.is_dir(),
+        }
+
+    def listdir(
+        self,
+        path: str = ".",
+        recursive: bool = False,
+        max_depth: int = 1,
+    ) -> dict[str, Any]:
+        """List files and directories inside the repository."""
+
+        resolved = self._resolve(path)
+
+        if not resolved.exists():
+            raise FilesystemServiceError(
+                f"Directory does not exist: {self._relative(resolved)}"
+            )
+
+        if not resolved.is_dir():
+            raise FilesystemServiceError(
+                f"Path is not a directory: {self._relative(resolved)}"
+            )
+
+
+==========================================
+odin_mcp/services/repository_search_service.py
+==========================================
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+class RepositorySearchError(RuntimeError):
+    pass
+
+
+class RepositorySearchService:
+    """
+    Repository search utilities used by Odin MCP.
+    """
+
+    def __init__(self, root: Path = REPOSITORY_ROOT):
+        self.root = root.resolve()
+
+    def _resolve(self, path: str = ".") -> Path:
+        p = (self.root / path).resolve()
+
+        try:
+            p.relative_to(self.root)
+        except ValueError:
+            raise RepositorySearchError(
+                "Path escapes repository."
+            )
+
+        return p
+
+    def tree(
+        self,
+        path: str = ".",
+        max_depth: int = 3,
+    ) -> dict[str, Any]:
+
+        root = self._resolve(path)
+
+        results: list[dict[str, Any]] = []
+
+        def walk(directory: Path, depth: int):
+
+            if depth > max_depth:
+                return
+
+            for child in sorted(
+                directory.iterdir(),
+                key=lambda x: (not x.is_dir(), x.name.lower()),
+            ):
+
+                results.append(
+                    {
+                        "path": str(child.relative_to(self.root)),
+                        "type": (
+                            "directory"
+                            if child.is_dir()
+                            else "file"
+                        ),
+                    }
+                )
+
+                if child.is_dir():
+                    walk(child, depth + 1)
+
+        walk(root, 0)
+
+        return {
+            "count": len(results),
+            "entries": results,
+        }
+
+    def search(
+        self,
+        text: str,
+        extensions: list[str] | None = None,
+        max_results: int = 200,
+    ) -> dict[str, Any]:
+
+        if not text.strip():
+            raise RepositorySearchError(
+                "Search text cannot be empty."
+            )
+
+        if extensions is None:
+            extensions = [
+                ".py",
+                ".md",
+                ".txt",
+                ".yaml",
+                ".yml",
+                ".json",
+                ".toml",
+                ".ini",
+            ]
+
+        matches = []
+
+        for file in self.root.rglob("*"):
+
+            if not file.is_file():
+                continue
+
+            if file.suffix not in extensions:
+                continue
+
+            try:
+                lines = file.read_text(
+                    encoding="utf-8",
+                    errors="ignore",
+                ).splitlines()
+            except Exception:
+                continue
+
+            for number, line in enumerate(lines, start=1):
+
+                if text.lower() in line.lower():
+
+                    matches.append(
+                        {
+                            "path": str(
+                                file.relative_to(self.root)
+                            ),
+                            "line": number,
+                            "text": line.strip(),
+                        }
+                    )
+
+                    if len(matches) >= max_results:
+                        return {
+                            "query": text,
+                            "count": len(matches),
+                            "results": matches,
+                        }
+
+        return {
+            "query": text,
+            "count": len(matches),
+            "results": matches,
+        }
+
+    def find_text(
+        self,
+        text: str,
+        max_results: int = 100,
+    ) -> dict[str, Any]:
+        """
+        Alias for search().
+        """
+        return self.search(
+            text=text,
+            max_results=max_results,
+        )
+
+    def find_python(
+        self,
+        symbol: str,
+        max_results: int = 100,
+    ) -> dict[str, Any]:
+        """
+        Search Python source only.
+        """
+
+        return self.search(
+            text=symbol,
+            extensions=[".py"],
+            max_results=max_results,
+        )
+
+    def file_summary(
+        self,
+        path: str,
+    ) -> dict[str, Any]:
+
+        file = self._resolve(path)
+
+        if not file.exists():
+            raise RepositorySearchError(
+                "File not found."
+            )
+
+        contents = file.read_text(
+            encoding="utf-8",
+            errors="ignore",
+        )
+
+        return {
+            "path": str(file.relative_to(self.root)),
+            "lines": len(contents.splitlines()),
+            "characters": len(contents),
+            "functions": contents.count("def "),
+            "classes": contents.count("class "),
+            "imports": (
+                contents.count("import ")
+                + contents.count("from ")
+            ),
+        }
+
+==========================================
+odin_mcp/services/task_executor.py
+==========================================
+from __future__ import annotations
+
+from typing import Any
+
+from odin_mcp.services.engineering_service import EngineeringService
+
+
+class EngineeringTaskExecutor:
+    """
+    Executes complete engineering tasks.
+
+    This is intentionally independent of any LLM.
+    Future planners will build task dictionaries that
+    are executed here.
+    """
+
+    def __init__(
+        self,
+        engineering: EngineeringService,
+    ) -> None:
+        self.engineering = engineering
+
+    def execute(
+        self,
+        task: dict[str, Any],
+    ) -> dict[str, Any]:
+
+        action = task["action"]
+
+        if action == "replace_text":
+            return self.engineering.submit_change(
+                path=task["path"],
+                old=task["old"],
+                new=task["new"],
+                commit_message=task["commit_message"],
+                push=task.get("push", False),
+                remote=task.get("remote", "origin"),
+                branch=task.get("branch"),
+            )
+
+        raise ValueError(
+            f"Unsupported engineering task: {action}"
+        )
+
+==========================================
+odin_mcp/services/plan_executor.py
+==========================================
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+from odin_mcp.models.engineering_plan import EngineeringPlan
+from odin_mcp.services.task_executor import EngineeringTaskExecutor
+
+
+@dataclass(slots=True)
+class StepResult:
+    index: int
+    action: str
+    success: bool
+    elapsed: float
+    result: dict[str, Any] | None = None
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class PlanResult:
+    success: bool
+    elapsed: float
+    completed_steps: int
+    results: list[StepResult] = field(default_factory=list)
+
+
+class EngineeringPlanExecutor:
+
+    def __init__(
+        self,
+        executor: EngineeringTaskExecutor,
+    ) -> None:
+        self.executor = executor
+
+    def execute(
+        self,
+        plan: EngineeringPlan,
+    ) -> PlanResult:
+
+        started = time.perf_counter()
+
+        results: list[StepResult] = []
+
+        for index, step in enumerate(plan.steps):
+
+            step_started = time.perf_counter()
+
+            try:
+
+                output = self.executor.execute(
+                    {
+                        "action": step.action,
+                        **step.parameters,
+                    }
+                )
+
+                results.append(
+                    StepResult(
+                        index=index,
+                        action=step.action,
+                        success=True,
+                        elapsed=time.perf_counter() - step_started,
+                        result=output,
+                    )
+                )
+
+            except Exception as exc:
+
+                results.append(
+                    StepResult(
+                        index=index,
+                        action=step.action,
+                        success=False,
+                        elapsed=time.perf_counter() - step_started,
+                        error=str(exc),
+                    )
+                )
+
+                return PlanResult(
+                    success=False,
+                    elapsed=time.perf_counter() - started,
+                    completed_steps=index,
+                    results=results,
+                )
+
+        return PlanResult(
+            success=True,
+            elapsed=time.perf_counter() - started,
+            completed_steps=len(results),
+            results=results,
+        )
+
+==========================================
+odin_mcp/services/autonomous_executor.py
+==========================================
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from odin_mcp.models.engineering_plan import EngineeringPlan
+from odin_mcp.services.plan_executor import EngineeringPlanExecutor
+from odin_mcp.services.validation_service import ValidationService
+
+
+@dataclass(slots=True)
+class AutonomousExecutionResult:
+    execution: object
+    validation: object | None
+    success: bool
+
+
+class AutonomousExecutor:
+
+    def __init__(
+        self,
+        executor: EngineeringPlanExecutor,
+        repo_root: Path,
+    ) -> None:
+
+        self.executor = executor
+        self.validation = ValidationService(repo_root)
+
+    def execute(
+        self,
+        plan: EngineeringPlan,
+        *,
+        validate: bool = True,
+    ) -> AutonomousExecutionResult:
+
+        execution = self.executor.execute(plan)
+
+        if not execution.success:
+            return AutonomousExecutionResult(
+                execution=execution,
+                validation=None,
+                success=False,
+            )
+
+        validation = None
+
+        if validate:
+            validation = self.validation.run()
+
+            if not validation.success:
+                return AutonomousExecutionResult(
+                    execution=execution,
+                    validation=validation,
+                    success=False,
+                )
+
+        return AutonomousExecutionResult(
+            execution=execution,
+            validation=validation,
+            success=True,
+        )
+
+==========================================
+odin_mcp/services/validation_service.py
+==========================================
+from __future__ import annotations
+
+import shutil
+import subprocess
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass(slots=True)
+class ValidationCommand:
+    name: str
+    command: list[str]
+
+
+@dataclass(slots=True)
+class ValidationResult:
+    success: bool
+    command: str
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+@dataclass(slots=True)
+class ValidationSummary:
+    success: bool
+    results: list[ValidationResult] = field(default_factory=list)
+
+
+class ValidationService:
+
+    def __init__(self, repo_root: Path):
+        self.repo_root = Path(repo_root)
+
+    def detect(self) -> list[ValidationCommand]:
+
+        commands: list[ValidationCommand] = []
+
+        if (self.repo_root / "pytest.ini").exists() \
+           or (self.repo_root / "pyproject.toml").exists():
+
+            if shutil.which("pytest"):
+                commands.append(
+                    ValidationCommand(
+                        "pytest",
+                        ["pytest", "-q"],
+                    )
+                )
+
+        if (self.repo_root / "package.json").exists():
+
+            if shutil.which("npm"):
+                commands.append(
+                    ValidationCommand(
+                        "npm test",
+                        ["npm", "test"],
+                    )
+                )
+
+        return commands
+
+    def run(self) -> ValidationSummary:
+
+        summary = ValidationSummary(success=True)
+
+        for command in self.detect():
+
+            proc = subprocess.run(
+                command.command,
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+            )
+
+            result = ValidationResult(
+                success=proc.returncode == 0,
+                command=command.name,
+                returncode=proc.returncode,
+                stdout=proc.stdout,
+                stderr=proc.stderr,
+            )
+
+            summary.results.append(result)
+
+            if not result.success:
+                summary.success = False
+
+        return summary
+
+
+==========================================
+CLASS DEFINITIONS
+==========================================
+odin_mcp/core/execute.py:12:class ExecuteResponse:
+odin_mcp/core/execute.py:21:class OdinExecuteAPI:
+odin_mcp/core/brain.py:10:class BrainContext:
+odin_mcp/core/brain.py:19:class OdinBrain:
+odin_mcp/core/orchestrator.py:16:class Odin:
+odin_mcp/core/brain_pipeline.py:6:class BrainPipeline:
+odin_mcp/core/brain_execution.py:6:class BrainExecutionPipeline:
+odin_mcp/services/repository_search_service.py:10:class RepositorySearchError(RuntimeError):
+odin_mcp/services/repository_search_service.py:14:class RepositorySearchService:
+odin_mcp/services/engineering_planner.py:6:class EngineeringPlanner:
+odin_mcp/services/autonomous_executor.py:12:class AutonomousExecutionResult:
+odin_mcp/services/autonomous_executor.py:18:class AutonomousExecutor:
+odin_mcp/services/task_executor.py:8:class EngineeringTaskExecutor:
+odin_mcp/services/plan_executor.py:12:class StepResult:
+odin_mcp/services/plan_executor.py:22:class PlanResult:
+odin_mcp/services/plan_executor.py:29:class EngineeringPlanExecutor:
+odin_mcp/services/validation_service.py:10:class ValidationCommand:
+odin_mcp/services/validation_service.py:16:class ValidationResult:
+odin_mcp/services/validation_service.py:25:class ValidationSummary:
+odin_mcp/services/validation_service.py:30:class ValidationService:
+odin_mcp/services/filesystem_service.py:16:class FilesystemServiceError(RuntimeError):
+odin_mcp/services/filesystem_service.py:20:class RepositoryWriteDisabledError(FilesystemServiceError):
+odin_mcp/services/filesystem_service.py:24:class FilesystemService:
+odin_mcp/services/engineering_service.py:13:class EngineeringService:
+odin_mcp/services/git_service.py:18:class GitServiceError(RuntimeError):
+odin_mcp/services/git_service.py:22:class GitWriteDisabledError(GitServiceError):
+odin_mcp/services/git_service.py:26:class GitService:
+odin_mcp/services/goal_planner.py:9:class GoalPlanner:
+odin_mcp/services/repository_planner.py:10:class CandidateFile:
+odin_mcp/services/repository_planner.py:17:class RepositoryAnalysis:
+odin_mcp/services/repository_planner.py:22:class RepositoryPlanner:
+odin_mcp/services/patch_service.py:9:class PatchService:
+odin_mcp/models/engineering_plan.py:8:class EngineeringStep:
+odin_mcp/models/engineering_plan.py:18:class EngineeringPlan:
+odin_mcp/models/engineering_goal.py:7:class EngineeringGoal:
+odin_mcp/models/engineering_goal.py:20:class GoalBreakdown:
+odin_mcp/models/decision_graph.py:8:class DecisionNode:
+odin_mcp/models/decision_graph.py:16:class DecisionEdge:
+odin_mcp/models/decision_graph.py:23:class DecisionGraph:
+
+==========================================
+CONSTRUCTORS
+==========================================
+odin_mcp/core/execute.py:36:    def __init__(
+odin_mcp/core/brain.py:28:    def __init__(self):
+odin_mcp/core/orchestrator.py:28:    def __init__(
+odin_mcp/core/brain_pipeline.py:19:    def __init__(self, brain):
+odin_mcp/core/brain_execution.py:12:    def __init__(self, brain):
+odin_mcp/services/repository_search_service.py:19:    def __init__(self, root: Path = REPOSITORY_ROOT):
+odin_mcp/services/autonomous_executor.py:20:    def __init__(
+odin_mcp/services/task_executor.py:17:    def __init__(
+odin_mcp/services/plan_executor.py:31:    def __init__(
+odin_mcp/services/validation_service.py:32:    def __init__(self, repo_root: Path):
+odin_mcp/services/filesystem_service.py:27:    def __init__(
+odin_mcp/services/engineering_service.py:22:    def __init__(self) -> None:
+odin_mcp/services/git_service.py:29:    def __init__(
+odin_mcp/services/repository_planner.py:30:    def __init__(
+odin_mcp/services/patch_service.py:11:    def __init__(self):
+
+==========================================
+REGISTERED TOOL FUNCTIONS
+==========================================
+odin_mcp/server.py:20:from odin_mcp.tools.git import register_git_tools
+odin_mcp/server.py:21:from odin_mcp.tools.filesystem import register_filesystem_tools
+odin_mcp/server.py:22:from odin_mcp.tools.repository_search import register_repository_search_tools
+odin_mcp/server.py:23:from odin_mcp.tools.repository_intelligence import register_repository_intelligence_tools
+odin_mcp/server.py:24:from odin_mcp.tools.repository_patch import register_patch_tools
+odin_mcp/server.py:25:from odin_mcp.tools.engineering import register_engineering_tools
+odin_mcp/server.py:26:from odin_mcp.tools.odin import register_odin_tools
+odin_mcp/server.py:60:register_git_tools(mcp)
+odin_mcp/server.py:61:register_filesystem_tools(mcp)
+odin_mcp/server.py:62:register_repository_search_tools(mcp)
+odin_mcp/server.py:63:register_repository_intelligence_tools(mcp)
+odin_mcp/server.py:64:register_patch_tools(mcp)
+odin_mcp/server.py:65:register_engineering_tools(mcp)
+odin_mcp/server.py:66:register_odin_tools(mcp)
+odin_mcp/tools/repository_patch.py:6:def register_patch_tools(
+odin_mcp/tools/repository_intelligence.py:10:def register_repository_intelligence_tools(
+odin_mcp/tools/engineering.py:8:def register_engineering_tools(
+odin_mcp/tools/filesystem.py:10:def register_filesystem_tools(mcp: FastMCP) -> None:
+odin_mcp/tools/git.py:10:def register_git_tools(mcp: FastMCP) -> None:
+odin_mcp/tools/repository_search.py:10:def register_repository_search_tools(
+odin_mcp/tools/odin.py:7:def register_odin_tools(mcp):
+
+==========================================
+ENGINEERING SERVICE REFERENCES
+==========================================
+
+==========================================
+GIT SERVICE REFERENCES
+==========================================
+
+==========================================
+FILESYSTEM SERVICE REFERENCES
+==========================================
+
+==========================================
+REPOSITORY SEARCH REFERENCES
+==========================================
+
+==========================================
+BRAIN REFERENCES
+==========================================
+odin_mcp/core/execute.py:7:from odin_mcp.core.brain_pipeline import BrainPipeline
+odin_mcp/core/execute.py:8:from odin_mcp.core.brain_execution import BrainExecutionPipeline
+odin_mcp/core/execute.py:43:        self.pipeline = BrainPipeline(
+odin_mcp/core/execute.py:47:        self.execution = BrainExecutionPipeline(
+odin_mcp/core/brain.py:19:class OdinBrain:
+odin_mcp/core/brain_pipeline.py:6:class BrainPipeline:
+odin_mcp/core/brain_execution.py:6:class BrainExecutionPipeline:
+
+==========================================
+MCP TOOLS
+==========================================
+odin_mcp/server.py:38:@mcp.tool()
+odin_mcp/server.py:45:@mcp.tool(name="odin.info")
+odin_mcp/tools/repository_patch.py:12:    @mcp.tool(name="repo.replace")
+odin_mcp/tools/repository_patch.py:24:    @mcp.tool(name="repo.insert_after")
+odin_mcp/tools/repository_patch.py:36:    @mcp.tool(name="repo.insert_before")
+odin_mcp/tools/repository_intelligence.py:16:    @mcp.tool(name="repo.find_text")
+odin_mcp/tools/repository_intelligence.py:26:    @mcp.tool(name="repo.find_python")
+odin_mcp/tools/repository_intelligence.py:36:    @mcp.tool(name="repo.file_summary")
+odin_mcp/tools/engineering.py:14:    @mcp.tool(name="engineering.status")
+odin_mcp/tools/engineering.py:21:    @mcp.tool(name="engineering.read_file")
+odin_mcp/tools/engineering.py:32:    @mcp.tool(name="engineering.edit_file")
+odin_mcp/tools/engineering.py:45:    @mcp.tool(name="engineering.replace_text")
+odin_mcp/tools/engineering.py:60:    @mcp.tool(name="engineering.search_text")
+odin_mcp/tools/engineering.py:73:    @mcp.tool(name="engineering.apply_change")
+odin_mcp/tools/engineering.py:90:    @mcp.tool(name="engineering.commit_changes")
+odin_mcp/tools/engineering.py:101:    @mcp.tool(name="engineering.fix_file")
+odin_mcp/tools/engineering.py:120:    @mcp.tool(name="engineering.submit_change")
+odin_mcp/tools/filesystem.py:15:    @mcp.tool(name="repo.exists")
+odin_mcp/tools/filesystem.py:21:    @mcp.tool(name="repo.read")
+odin_mcp/tools/filesystem.py:27:    @mcp.tool(name="repo.write")
+odin_mcp/tools/filesystem.py:45:    @mcp.tool(name="repo.mkdir")
+odin_mcp/tools/filesystem.py:63:    @mcp.tool(name="repo.listdir")
+odin_mcp/tools/filesystem.py:77:    @mcp.tool(name="repo.stat")
+odin_mcp/tools/git.py:15:    @mcp.tool(name="git.branch")
+odin_mcp/tools/git.py:21:    @mcp.tool(name="git.status")
+odin_mcp/tools/git.py:27:    @mcp.tool(name="git.diff")
+odin_mcp/tools/git.py:33:    @mcp.tool(name="git.log")
+odin_mcp/tools/git.py:39:    @mcp.tool(name="git.stage")
+odin_mcp/tools/git.py:48:    @mcp.tool(name="git.commit")
+odin_mcp/tools/git.py:57:    @mcp.tool(name="git.push")
+odin_mcp/tools/repository_search.py:16:    @mcp.tool(name="repo.tree")
+odin_mcp/tools/repository_search.py:29:    @mcp.tool(name="repo.search")
+odin_mcp/tools/odin.py:10:    @mcp.tool(name="odin.execute")
+
+==========================================
+SERVER REGISTRATION
+==========================================

@@ -70,18 +70,18 @@ def test_analysis_results_warnings():
 
 
 def test_repository_health_analysis():
+    class EmptyGraph:
+        def __len__(self):
+            return 0
+
+
     class RepositoryStub:
         file_count = 1
         parsed_count = 1
         symbol_count = 1
 
-        class import_graph:
-            def __len__(self):
-                return 0
-
-        class call_graph:
-            def __len__(self):
-                return 0
+        import_graph = EmptyGraph()
+        call_graph = EmptyGraph()
 
     analysis = RepositoryHealthAnalysis()
 
