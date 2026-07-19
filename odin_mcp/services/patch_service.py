@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from odin_mcp.services.filesystem_service import FilesystemService
+
+
+class PatchService:
+
+    def __init__(self):
+        self.fs = FilesystemService()
+
+    def replace(
+        self,
+        path: str,
+        old: str,
+        new: str,
+    ) -> dict[str, Any]:
+
+        file = self.fs.read(path)
+
+        contents = file["contents"]
+
+        if old not in contents:
+            raise RuntimeError(
+                "Target text not found."
+            )
+
+        updated = contents.replace(old, new, 1)
+
+        self.fs.write(
+            path,
+            updated,
+        )
+
+        return {
+            "path": path,
+            "replacements": 1,
+        }
+
+    def insert_after(
+        self,
+        path: str,
+        anchor: str,
+        text: str,
+    ):
+
+        file = self.fs.read(path)
+
+        contents = file["contents"]
+
+        if anchor not in contents:
+            raise RuntimeError(
+                "Anchor not found."
+            )
+
+        updated = contents.replace(
+            anchor,
+            anchor + text,
+            1,
+        )
+
+        self.fs.write(
+            path,
+            updated,
+        )
+
+        return {
+            "path": path,
+            "inserted": True,
+        }
+
+    def insert_before(
+        self,
+        path: str,
+        anchor: str,
+        text: str,
+    ):
+
+        file = self.fs.read(path)
+
+        contents = file["contents"]
+
+        if anchor not in contents:
+            raise RuntimeError(
+                "Anchor not found."
+            )
+
+        updated = contents.replace(
+            anchor,
+            text + anchor,
+            1,
+        )
+
+        self.fs.write(
+            path,
+            updated,
+        )
+
+        return {
+            "path": path,
+            "inserted": True,
+        }
