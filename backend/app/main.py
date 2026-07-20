@@ -1,4 +1,3 @@
-from odin_auth.router import router as auth_router
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -18,10 +17,14 @@ from app.api.jobs import router as jobs_router
 from app.api.planner import router as planner_router
 from app.api.llm import router as llm_router
 from app.api.prompts import router as prompts_router
-from app.api.conversations import router as conversations_router
-from app.api.conversations import sessions_router
-from app.api.agents import router as agents_router
-from app.api.agents import workflows_router
+from app.api.conversations import (
+    router as conversations_router,
+    sessions_router,
+)
+from app.api.agents import (
+    router as agents_router,
+    workflows_router,
+)
 from app.core.odin import Odin
 from app.core.settings import settings
 from app.mcp_server import create_mcp
@@ -53,14 +56,15 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
-
-# OW-003 AUTH ROUTER
-app.include_router(auth_router)
-
 
 odin = Odin()
 
+# API Routers
+app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(runtime_dashboard_router)
 app.include_router(version_router)
@@ -71,7 +75,6 @@ app.include_router(jobs_router)
 app.include_router(events_router)
 app.include_router(storage_router)
 app.include_router(memory_router)
-app.include_router(auth_router)
 app.include_router(llm_router)
 app.include_router(prompts_router)
 app.include_router(sessions_router)
@@ -80,11 +83,18 @@ app.include_router(agents_router)
 app.include_router(conversations_router)
 app.include_router(planner_router)
 
+# MCP endpoint
 app.router.routes.append(mcp_mount)
 
 
-@app.get("/")
+@app.get("/", tags=["System"])
 def root():
-    status_payload = odin.status()
-    status_payload["runtime"] = runtime.snapshot()
-    return status_payload
+    return {
+        "name": settings.APP_NAME,
+        "version": settings.VERSION,
+        "status": "online",
+        "health": "/health",
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+        "runtime": runtime.snapshot(),
+    }
