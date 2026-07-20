@@ -6,6 +6,7 @@ from app.services.github.commits import CommitService
 from app.services.github.contents import ContentService
 from app.services.github.pull_requests import PullRequestService
 from app.services.github.repositories import RepositoryService
+from app.services.github.workflows import WorkflowService
 
 
 class GitHubProvider:
@@ -18,6 +19,7 @@ class GitHubProvider:
         self.commits = CommitService(self.client)
         self.contents = ContentService(self.client)
         self.pull_requests = PullRequestService(self.client)
+        self.workflows = WorkflowService(self.client)
 
     @property
     def configured(self) -> bool:

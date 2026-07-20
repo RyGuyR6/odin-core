@@ -92,3 +92,11 @@ class GitHubClient:
 
     def patch(self, endpoint: str, payload):
         return self.request("PATCH", endpoint, json=payload)
+
+
+    def put(self, endpoint: str, payload):
+        return self.request("PUT", endpoint, json=payload)
+
+    def delete(self, endpoint: str, payload=None):
+        kwargs = {"json": payload} if payload is not None else {}
+        return self.request("DELETE", endpoint, **kwargs)
