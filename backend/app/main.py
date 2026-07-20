@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from starlette.routing import Mount
 
 from app.api.health import router as health_router
+from app.api.runtime_dashboard import router as runtime_dashboard_router
 from app.api.memory import router as memory_router
 from app.api.auth import router as auth_router
 from app.api.storage import router as storage_router
@@ -61,6 +62,7 @@ app.include_router(auth_router)
 odin = Odin()
 
 app.include_router(health_router)
+app.include_router(runtime_dashboard_router)
 app.include_router(version_router)
 app.include_router(github_router)
 app.include_router(change_tasks_router)

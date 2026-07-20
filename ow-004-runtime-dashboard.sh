@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+MILESTONE="OW-004"
+ROOT="$(pwd)"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="$ROOT/.odin-backups/${MILESTONE}-${STAMP}"
+DONE=0
+
+ok(){ printf '\033[32m[OK]\033[0m %s\n' "$*"; }
+info(){ printf '\033[36m[INFO]\033[0m %s\n' "$*"; }
+fail(){ printf '\033[31m[FAIL]\033[0m %s\n' "$*" >&2; }
+
+rollback(){
+  code=$?
+  [[ "$DONE" == 1 ]] && return
+  fail "$MILESTONE failed (exit $code). Rolling back..."
+  if [[ -d "$BACKUP_DIR/repo" ]]; then
+    rsync -a --delete --exclude .git --exclude .odin-backups \
+      --exclude backend/.venv --exclude frontend/node_modules \
+      "$BACKUP_DIR/repo/" "$ROOT/"
+    ok "Rollback completed"
+  fi
+  exit "$code"
+}
+trap rollback ERR INT TERM
+
+[[ -d backend && -d frontend ]] || { fail "Run from odin-core repository root"; exit 1; }
+mkdir -p "$BACKUP_DIR/repo"
+rsync -a --exclude .git --exclude .odin-backups --exclude backend/.venv \
+  --exclude frontend/node_modules "$ROOT/" "$BACKUP_DIR/repo/"
+ok "Backup created at $BACKUP_DIR"
+
+mkdir -p backend/app/api backend/app/services backend/app/models backend/tests \
+  frontend/app/api/odin/runtime frontend/components/dashboard frontend/lib/api
+
+cat > backend/app/models/runtime_dashboard.py <<'PY'
+from datetime import datetime
+from typing import Literal
+from pydantic import BaseModel, Field
+
+HealthState = Literal["healthy", "degraded", "offline"]
+AgentState = Literal["idle", "running", "offline", "error"]
+
+class Metrics(BaseModel):
+    cpu_percent: float = Field(ge=0, le=100)
+    memory_percent: float = Field(ge=0, le=100)
+    disk_percent: float = Field(ge=0, le=100)
+
+class RuntimeStatus(BaseModel):
+    status: HealthState
+    version: str
+    environment: str
+    started_at: datetime | None
+    uptime_seconds: float
+    checked_at: datetime
+    metrics: Metrics
+
+class Agent(BaseModel):
+    id: str
+    name: str
+    status: AgentState
+    description: str
+
+class Tasks(BaseModel):
+    queued: int = 0
+    running: int = 0
+    completed: int = 0
+    failed: int = 0
+
+class Dashboard(BaseModel):
+    runtime: RuntimeStatus
+    agents: list[Agent]
+    tasks: Tasks
+    repositories: dict[str, int]
+    recent_activity: list[dict]
+PY
+
+cat > backend/app/services/runtime_dashboard.py <<'PY'
+from datetime import datetime, timezone
+from pathlib import Path
+from time import monotonic
+import psutil
+from app.models.runtime_dashboard import Agent, Dashboard, Metrics, RuntimeStatus, Tasks
+
+STARTED_AT = datetime.now(timezone.utc)
+STARTED_MONO = monotonic()
+
+def snapshot():
+    try:
+        from app.services.runtime import runtime
+        value = runtime.snapshot()
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+def setting(name, default):
+    try:
+        from app.core.settings import settings
+        return str(getattr(settings, name, default))
+    except Exception:
+        return default
+
+def runtime_status():
+    snap = snapshot()
+    state = str(snap.get("state", "ready"))
+    live = bool(snap.get("live", True))
+    ready = bool(snap.get("ready", state == "ready"))
+    failures = snap.get("required_service_failures") or []
+    health = "offline" if not live else "degraded" if (not ready or failures) else "healthy"
+    started = STARTED_AT
+    raw = snap.get("started_at")
+    if isinstance(raw, str):
+        try: started = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError: pass
+    uptime = snap.get("uptime_seconds")
+    if not isinstance(uptime, (int, float)): uptime = monotonic() - STARTED_MONO
+    root = Path.cwd().anchor or "/"
+    return RuntimeStatus(
+        status=health,
+        version=setting("VERSION", "0.1.0"),
+        environment=setting("ENVIRONMENT", "development"),
+        started_at=started,
+        uptime_seconds=round(float(uptime), 3),
+        checked_at=datetime.now(timezone.utc),
+        metrics=Metrics(
+            cpu_percent=round(float(psutil.cpu_percent(interval=0.05)), 1),
+            memory_percent=round(float(psutil.virtual_memory().percent), 1),
+            disk_percent=round(float(psutil.disk_usage(root).percent), 1),
+        ),
+    )
+
+def agents():
+    return [
+        Agent(id="planner", name="Planner", status="idle", description="Plans engineering work."),
+        Agent(id="execution", name="Execution", status="offline", description="Runs approved tasks."),
+        Agent(id="review", name="Code Review", status="offline", description="Reviews generated changes."),
+        Agent(id="testing", name="Testing", status="offline", description="Validates code and builds."),
+        Agent(id="deployment", name="Deployment", status="offline", description="Coordinates releases."),
+    ]
+
+def activity():
+    events = snapshot().get("events") or []
+    result = []
+    for index, event in enumerate(events[-8:]):
+        if not isinstance(event, dict): continue
+        result.append({
+            "id": f"event-{index}",
+            "timestamp": event.get("completed_at") or event.get("started_at") or datetime.now(timezone.utc).isoformat(),
+            "level": str(event.get("status", "info")),
+            "message": f"{event.get('component', 'runtime')}: {event.get('phase', 'event')} {event.get('status', 'info')}",
+        })
+    return list(reversed(result))
+
+def dashboard():
+    configured = bool(setting("GITHUB_TOKEN", "").strip())
+    return Dashboard(
+        runtime=runtime_status(), agents=agents(), tasks=Tasks(),
+        repositories={"connected": 1 if configured else 0}, recent_activity=activity()
+    )
+PY
+
+cat > backend/app/api/runtime_dashboard.py <<'PY'
+from fastapi import APIRouter
+from app.models.runtime_dashboard import Agent, Dashboard, RuntimeStatus, Tasks
+from app.services.runtime_dashboard import agents, dashboard, runtime_status
+
+router = APIRouter(prefix="/runtime", tags=["runtime"])
+
+@router.get("/dashboard", response_model=Dashboard)
+def get_dashboard(): return dashboard()
+
+@router.get("/status", response_model=RuntimeStatus)
+def get_status(): return runtime_status()
+
+@router.get("/agents", response_model=list[Agent])
+def get_agents(): return agents()
+
+@router.get("/tasks", response_model=Tasks)
+def get_tasks(): return Tasks()
+
+@router.get("/health")
+def get_health(): return {"status": runtime_status().status}
+PY
+
+python - <<'PY'
+from pathlib import Path
+p = Path("backend/app/main.py")
+s = p.read_text()
+imp = "from app.api.runtime_dashboard import router as runtime_dashboard_router\n"
+inc = "app.include_router(runtime_dashboard_router)\n"
+if imp not in s:
+    marker = "from app.api.health import router as health_router\n"
+    if marker not in s: raise SystemExit("health router import not found")
+    s = s.replace(marker, marker + imp, 1)
+if inc not in s:
+    marker = "app.include_router(health_router)\n"
+    if marker not in s: raise SystemExit("health router include not found")
+    s = s.replace(marker, marker + inc, 1)
+p.write_text(s)
+
+p = Path("backend/pyproject.toml")
+s = p.read_text()
+if '"psutil' not in s:
+    marker = "dependencies = [\n"
+    if marker not in s: raise SystemExit("dependencies array not found")
+    s = s.replace(marker, marker + '    "psutil>=7.0.0",\n', 1)
+p.write_text(s)
+PY
+ok "Backend runtime API created"
+
+cat > backend/tests/test_ow004_runtime_dashboard.py <<'PY'
+from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)
+
+def test_dashboard_contract():
+    response = client.get("/runtime/dashboard")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["runtime"]["status"] in {"healthy", "degraded", "offline"}
+    for key in ("cpu_percent", "memory_percent", "disk_percent"):
+        assert 0 <= data["runtime"]["metrics"][key] <= 100
+    assert isinstance(data["agents"], list)
+    assert {"queued", "running", "completed", "failed"} <= set(data["tasks"])
+PY
+
+cat > frontend/app/api/odin/runtime/route.ts <<'TS'
+import { NextResponse } from "next/server";
+import { odinConfig } from "@/lib/config";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const started = Date.now();
+  const url = `${odinConfig.apiUrl}/runtime/dashboard`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    const body = await response.json().catch(() => ({ detail: "Invalid runtime response" }));
+    return NextResponse.json(
+      { ...body, proxy: { latencyMs: Date.now() - started, checkedAt: new Date().toISOString() } },
+      { status: response.status },
+    );
+  } catch (error) {
+    return NextResponse.json(
+      { detail: "Odin runtime API is unavailable.", error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 503 },
+    );
+  } finally { clearTimeout(timeout); }
+}
+TS
+
+cat > frontend/lib/api/runtime.ts <<'TS'
+export type RuntimeData = {
+  runtime: {
+    status: "healthy" | "degraded" | "offline";
+    version: string;
+    environment: string;
+    uptime_seconds: number;
+    metrics: { cpu_percent: number; memory_percent: number; disk_percent: number };
+  };
+  agents: Array<{ id: string; name: string; status: "idle" | "running" | "offline" | "error"; description: string }>;
+  tasks: { queued: number; running: number; completed: number; failed: number };
+  repositories: { connected: number };
+  recent_activity: Array<{ id: string; timestamp: string; level: string; message: string }>;
+  proxy?: { latencyMs: number; checkedAt: string };
+};
+
+export async function getRuntime(signal?: AbortSignal): Promise<RuntimeData> {
+  const response = await fetch("/api/odin/runtime", { cache: "no-store", signal });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.detail ?? `Runtime request failed (${response.status})`);
+  return body as RuntimeData;
+}
+TS
+
+cat > frontend/components/dashboard/runtime-dashboard.tsx <<'TSX'
+"use client";
+
+import { Activity, Bot, Cpu, FolderGit2, HardDrive, ListChecks, MemoryStick, RefreshCw, Server, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { getRuntime, type RuntimeData } from "@/lib/api/runtime";
+
+const badge = {
+  healthy: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
+  degraded: "border-amber-400/25 bg-amber-400/10 text-amber-200",
+  offline: "border-rose-400/25 bg-rose-400/10 text-rose-200",
+};
+
+function Metric({ label, value, progress, icon: Icon }: { label: string; value: string; progress?: number; icon: typeof Cpu }) {
+  return <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
+    <div className="flex items-center justify-between"><p className="text-sm text-[var(--muted)]">{label}</p><Icon size={18} className="text-violet-200" /></div>
+    <p className="mt-4 text-3xl font-semibold">{value}</p>
+    {progress !== undefined && <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-cyan-300" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} /></div>}
+  </article>;
+}
+
+export function RuntimeDashboard() {
+  const [data, setData] = useState<RuntimeData | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    try { setData(await getRuntime()); setError(""); }
+    catch (e) { setError(e instanceof Error ? e.message : "Runtime unavailable"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => {
+    const initialLoad = window.setTimeout(() => {
+      void load();
+    }, 0);
+
+    const id = window.setInterval(() => {
+      void load();
+    }, 10000);
+
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(id);
+    };
+  }, [load]);
+
+  if (loading && !data) return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0,1,2,3].map(i => <div key={i} className="h-40 animate-pulse rounded-2xl border border-[var(--border)] bg-[var(--surface)]" />)}</div>;
+  if (!data) return <div className="rounded-2xl border border-rose-400/20 bg-rose-400/5 p-6"><TriangleAlert className="text-rose-300" /><p className="mt-3">{error}</p><button onClick={() => void load()} className="mt-4 rounded-lg border border-[var(--border)] px-3 py-2">Retry</button></div>;
+
+  const m = data.runtime.metrics;
+  const tasks = Object.entries(data.tasks);
+  return <div className="space-y-5">
+    <section className="flex flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div><div className="flex items-center gap-3"><h2 className="text-lg font-semibold">Odin runtime</h2><span className={`rounded-full border px-3 py-1 text-xs capitalize ${badge[data.runtime.status]}`}>{data.runtime.status}</span></div><p className="mt-2 text-sm text-[var(--muted)]">{data.runtime.environment} · v{data.runtime.version} · 10-second polling</p></div>
+      <button onClick={() => void load()} className="rounded-lg border border-[var(--border)] p-2"><RefreshCw size={16} /></button>
+    </section>
+    {error && <p className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-100">Refresh failed: {error}. Showing cached data.</p>}
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <Metric label="CPU" value={`${m.cpu_percent.toFixed(1)}%`} progress={m.cpu_percent} icon={Cpu} />
+      <Metric label="Memory" value={`${m.memory_percent.toFixed(1)}%`} progress={m.memory_percent} icon={MemoryStick} />
+      <Metric label="Disk" value={`${m.disk_percent.toFixed(1)}%`} progress={m.disk_percent} icon={HardDrive} />
+      <Metric label="API latency" value={`${data.proxy?.latencyMs ?? 0} ms`} icon={Server} />
+    </section>
+    <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
+      <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><h2 className="font-medium">Agent registry</h2><div className="mt-4 grid gap-3 md:grid-cols-2">{data.agents.map(a => <div key={a.id} className="rounded-xl border border-[var(--border)] bg-black/10 p-4"><div className="flex gap-3"><Bot size={18} className="text-violet-200" /><div><p className="font-medium">{a.name} <span className="ml-2 text-xs capitalize text-[var(--muted)]">{a.status}</span></p><p className="mt-1 text-xs text-[var(--muted)]">{a.description}</p></div></div></div>)}</div></article>
+      <div className="space-y-5"><article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex justify-between"><h2>Tasks</h2><ListChecks size={18} /></div><div className="mt-4 grid grid-cols-2 gap-3">{tasks.map(([k,v]) => <div key={k} className="rounded-xl border border-[var(--border)] p-3"><p className="text-xs capitalize text-[var(--muted)]">{k}</p><p className="mt-1 text-xl font-semibold">{v}</p></div>)}</div></article><article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex justify-between"><h2>Repositories</h2><FolderGit2 size={18} /></div><p className="mt-4 text-3xl font-semibold">{data.repositories.connected}</p><p className="text-sm text-[var(--muted)]">Connected</p></article></div>
+    </section>
+    <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex justify-between"><h2>Recent activity</h2><Activity size={18} /></div>{data.recent_activity.length ? <div className="mt-4 divide-y divide-[var(--border)]">{data.recent_activity.map(x => <div key={x.id} className="flex justify-between py-3 text-sm"><span>{x.message}</span><span className="text-xs text-[var(--muted)]">{new Date(x.timestamp).toLocaleString()}</span></div>)}</div> : <p className="mt-5 rounded-xl border border-dashed border-[var(--border)] p-8 text-center text-sm text-[var(--muted)]">No recent activity.</p>}</article>
+  </div>;
+}
+TSX
+
+cat > frontend/app/page.tsx <<'TSX'
+import { PageHeader } from "@/components/page-header";
+import { RuntimeDashboard } from "@/components/dashboard/runtime-dashboard";
+
+export default function DashboardPage() {
+  return <><PageHeader eyebrow="OW-004 · Runtime dashboard" title="Odin Control Center" description="Monitor system health, agents, tasks, repositories, and runtime activity." /><RuntimeDashboard /></>;
+}
+TSX
+
+info "Installing Python dependencies"
+(cd backend && if command -v uv >/dev/null; then uv sync; else python -m pip install -e .; fi)
+info "Running backend tests"
+(cd backend && if command -v uv >/dev/null; then uv run pytest tests/test_ow004_runtime_dashboard.py -q; else python -m pytest tests/test_ow004_runtime_dashboard.py -q; fi)
+info "Compiling backend"
+(cd backend && if command -v uv >/dev/null; then uv run python -m compileall -q app; else python -m compileall -q app; fi)
+info "Verifying frontend"
+(cd frontend && [[ -d node_modules ]] || npm ci; npm run verify)
+
+DONE=1
+trap - ERR INT TERM
+ok "OW-004 Runtime Dashboard installed successfully"
+cat <<TXT
+
+Start locally:
+  Terminal 1:
+    cd backend && source .venv/bin/activate
+    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+  Terminal 2:
+    cd frontend
+    npm run dev
+
+Required frontend/.env.local:
+  ODIN_BACKEND_URL=http://127.0.0.1:8000
+
+Commit:
+  git add .
+  git commit -m "OW-004: add runtime dashboard"
+  git push origin main
+
+Backup: $BACKUP_DIR
+TXT
