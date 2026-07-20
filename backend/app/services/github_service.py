@@ -1,35 +1,41 @@
-"""
-GitHub Service
+"""Backward-compatible facade over the canonical GitHub client."""
 
-Repository operations for Odin.
-"""
+from __future__ import annotations
 
-import requests
-
-from app.core.settings import settings
+from app.services.github.client import GitHubClient
 
 
 class GitHubService:
-    BASE_URL = "https://api.github.com"
-
-    def __init__(self):
-        if not settings.ODIN_GITHUB_TOKEN:
-            raise RuntimeError("GITHUB_TOKEN is not configured.")
-
-        self.session = requests.Session()
-
-        self.session.headers.update(
-            {
-                "Authorization": f"Bearer {settings.ODIN_GITHUB_TOKEN}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            }
+    def __init__(
+        self,
+        token: str | None = None,
+        *,
+        timeout_seconds: float = 30.0,
+        session=None,
+    ):
+        self.client = GitHubClient(
+            token=token,
+            timeout_seconds=timeout_seconds,
+            session=session,
         )
 
+    @property
+    def token(self):
+        return self.client.token
+
+    @property
+    def configured(self) -> bool:
+        return self.client.configured
+
+    @property
+    def session(self):
+        return self.client.session
+
     def _get(self, endpoint: str):
-        response = self.session.get(f"{self.BASE_URL}{endpoint}")
-        response.raise_for_status()
-        return response.json()
+        return self.client.get(endpoint)
+
+    def _post(self, endpoint: str, payload: dict):
+        return self.client.post(endpoint, payload)
 
     def get_current_user(self):
         return self._get("/user")
@@ -46,18 +52,8 @@ class GitHubService:
     def get_file(self, owner: str, repo: str, path: str):
         return self._get(f"/repos/{owner}/{repo}/contents/{path}")
 
-    def _post(self, endpoint: str, payload: dict):
-        response = self.session.post(
-            f"{self.BASE_URL}{endpoint}",
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
-
     def get_branch(self, owner: str, repo: str, branch: str):
-        return self._get(
-            f"/repos/{owner}/{repo}/git/ref/heads/{branch}"
-        )
+        return self._get(f"/repos/{owner}/{repo}/git/ref/heads/{branch}")
 
     def create_branch(
         self,
@@ -68,8 +64,5 @@ class GitHubService:
     ):
         return self._post(
             f"/repos/{owner}/{repo}/git/refs",
-            {
-                "ref": f"refs/heads/{new_branch}",
-                "sha": source_sha,
-            },
+            {"ref": f"refs/heads/{new_branch}", "sha": source_sha},
         )

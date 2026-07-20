@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 from app.core.logger import logger
 from app.core.settings import settings
-
 from app.services.container import container
+from app.services.github import get_github_provider
+from app.services.github.client import github_is_configured
 from app.services.health_service import HealthService
-from app.services.github_service import GitHubService
-
 from app.tools.loader import load_tools
 from app.tools.registry import registry
 
@@ -15,11 +16,18 @@ class Odin:
         self.version = settings.VERSION
         self.environment = settings.ENVIRONMENT
 
-        container.register("health", HealthService())
-        container.register("github", GitHubService())
+        if not container.is_registered("health"):
+            container.register("health", HealthService())
+
+        if not container.is_registered("github"):
+            container.register_factory(
+                "github",
+                get_github_provider,
+                required=False,
+                configured=github_is_configured,
+            )
 
         load_tools()
-
         logger.info("Odin initialized.")
 
     def status(self):
@@ -28,6 +36,6 @@ class Odin:
             "version": self.version,
             "environment": self.environment,
             "status": "online",
-            "services": list(container.services.keys()),
+            "services": container.health(),
             "tools": registry.metadata(),
         }

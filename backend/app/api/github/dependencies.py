@@ -1,10 +1,7 @@
-"""Application dependency providers."""
-
 from __future__ import annotations
 
 from app.services.github import get_github_provider
 from app.services.github.branches import BranchService
-from app.services.github.commits import CommitService
 from app.services.github.pull_requests import PullRequestService
 from app.services.github.repositories import RepositoryService
 
@@ -15,10 +12,6 @@ def get_repository_service() -> RepositoryService:
 
 def get_branch_service() -> BranchService:
     return get_github_provider().branches
-
-
-def get_commit_service() -> CommitService:
-    return get_github_provider().commits
 
 
 def get_pull_request_service() -> PullRequestService:

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.routing import Mount
 
 from app.api.health import router as health_router
 from app.api.memory import router as memory_router
@@ -20,15 +21,29 @@ from app.api.agents import router as agents_router
 from app.api.agents import workflows_router
 from app.core.odin import Odin
 from app.core.settings import settings
-from app.mcp_server import mcp
+from app.mcp_server import create_mcp
+from app.services.runtime import runtime
 from app.storage.service import storage_service
+
+
+# Keep one stable route object while replacing the mounted MCP ASGI app with
+# a fresh server for every lifespan. MCP session managers are single-use.
+_initial_mcp = create_mcp()
+mcp_mount = Mount("/mcp", app=_initial_mcp.streamable_http_app())
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    storage_service.initialize()
-    async with mcp.session_manager.run():
-        yield
+    await runtime.startup(storage_initialize=storage_service.initialize)
+
+    active_mcp = create_mcp()
+    mcp_mount.app = active_mcp.streamable_http_app()
+
+    try:
+        async with active_mcp.session_manager.run():
+            yield
+    finally:
+        await runtime.shutdown()
 
 
 app = FastAPI(
@@ -56,9 +71,11 @@ app.include_router(agents_router)
 app.include_router(conversations_router)
 app.include_router(planner_router)
 
-app.mount("/mcp", mcp.streamable_http_app())
+app.router.routes.append(mcp_mount)
 
 
 @app.get("/")
 def root():
-    return odin.status()
+    status_payload = odin.status()
+    status_payload["runtime"] = runtime.snapshot()
+    return status_payload
