@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run lint && npm run typecheck && npm run build"
+    "verify": "npm run lint && npm run typecheck && npm run build",
+    "verify:ow-002": "node scripts/verify-ow-002.mjs"
   },
   "dependencies": {
     "next": "16.2.10",

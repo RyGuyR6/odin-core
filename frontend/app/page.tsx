@@ -1,70 +1,55 @@
-import { Activity, Bot, Github, Server, TerminalSquare } from "lucide-react";
+import { Activity, Bot, FolderGit2, ShieldCheck } from "lucide-react";
+import { BackendStatus } from "@/components/status/backend-status";
+import { PageHeader } from "@/components/page-header";
 
-const cards = [
-  { label: "Runtime", value: "Foundation ready", icon: Server },
-  { label: "GitHub", value: "Backend integration next", icon: Github },
-  { label: "Task Engine", value: "API wiring next", icon: Activity },
-  { label: "AI Planner", value: "Provider layer planned", icon: Bot },
+const metrics = [
+  { label: "Active tasks", value: "0", detail: "Task queue arrives in OW-004", icon: Bot },
+  { label: "Repositories", value: "1", detail: "odin-core configured", icon: FolderGit2 },
+  { label: "Approvals", value: "0", detail: "No work waiting", icon: ShieldCheck },
+  { label: "Recent events", value: "—", detail: "Activity feed arrives next", icon: Activity },
 ];
 
-export default function Home() {
+export default function DashboardPage() {
   return (
-    <main className="mx-auto min-h-screen max-w-7xl px-5 py-8 sm:px-8">
-      <header className="flex flex-col gap-5 border-b border-[var(--border)] pb-7 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--accent-soft)] px-3 py-1 text-sm text-violet-200">
-            <TerminalSquare size={15} /> OW-001 installed
-          </div>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Odin Control Center</h1>
-          <p className="mt-2 max-w-2xl text-[var(--muted)]">
-            The remote interface for planning, approving, and monitoring Odin&apos;s engineering work.
-          </p>
-        </div>
-        <div className="inline-flex w-fit items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm">
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-          Web foundation healthy
-        </div>
-      </header>
+    <>
+      <PageHeader
+        eyebrow="OW-002 · Application shell"
+        title="Odin Control Center"
+        description="Monitor connectivity and navigate the capabilities that will turn Odin into your remote autonomous engineering platform."
+      />
 
-      <section className="grid gap-4 py-7 sm:grid-cols-2 lg:grid-cols-4">
-        {cards.map(({ label, value, icon: Icon }) => (
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {metrics.map(({ label, value, detail, icon: Icon }) => (
           <article key={label} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
-            <Icon className="mb-5 text-violet-300" size={21} />
-            <p className="text-sm text-[var(--muted)]">{label}</p>
-            <p className="mt-1 font-medium">{value}</p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-[var(--muted)]">{label}</p>
+              <Icon size={18} className="text-violet-300" />
+            </div>
+            <p className="mt-4 text-3xl font-semibold">{value}</p>
+            <p className="mt-2 text-sm text-[var(--muted)]">{detail}</p>
           </article>
         ))}
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
-        <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6">
-          <h2 className="text-lg font-medium">What this milestone established</h2>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <section className="mt-5 grid gap-5 lg:grid-cols-[1fr_1.3fr]">
+        <BackendStatus />
+        <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
+          <h2 className="font-medium">Foundation progress</h2>
+          <div className="mt-5 space-y-4">
             {[
-              "Next.js App Router",
-              "Strict TypeScript",
-              "Tailwind CSS",
-              "Typed Odin API client",
-              "Production standalone build",
-              "Docker-ready structure",
-            ].map((item) => (
-              <div key={item} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-sm">
-                {item}
+              ["Web foundation", "Complete"],
+              ["Responsive shell", "Complete"],
+              ["Backend status proxy", "Complete"],
+              ["Authentication", "Next"],
+            ].map(([label, state]) => (
+              <div key={label} className="flex items-center justify-between border-b border-[var(--border)] pb-3 last:border-0 last:pb-0">
+                <span className="text-sm">{label}</span>
+                <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-xs text-violet-200">{state}</span>
               </div>
             ))}
           </div>
         </article>
-
-        <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6">
-          <h2 className="text-lg font-medium">Next capability</h2>
-          <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-            OW-002 will add the responsive application shell, navigation, configuration handling, and a live backend connection indicator.
-          </p>
-          <div className="mt-5 rounded-xl border border-violet-400/30 bg-[var(--accent-soft)] p-4 text-sm text-violet-100">
-            Target domain: odincore.net
-          </div>
-        </article>
       </section>
-    </main>
+    </>
   );
 }

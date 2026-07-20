@@ -1,3 +1,4 @@
+from odin_auth.router import router as auth_router
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -52,6 +53,10 @@ app = FastAPI(
     version=settings.VERSION,
     lifespan=lifespan,
 )
+
+# OW-003 AUTH ROUTER
+app.include_router(auth_router)
+
 
 odin = Odin()
 
