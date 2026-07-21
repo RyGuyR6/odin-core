@@ -1,13 +1,23 @@
 "use client";
 
 import { Activity, Bot, Cpu, FolderGit2, HardDrive, ListChecks, MemoryStick, RefreshCw, Server, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getRuntime, type RuntimeData } from "@/lib/api/runtime";
 
 const badge = {
   healthy: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
   degraded: "border-amber-400/25 bg-amber-400/10 text-amber-200",
   offline: "border-rose-400/25 bg-rose-400/10 text-rose-200",
+};
+
+const agentStatusLabel: Record<RuntimeData["agents"][number]["status"], string> = {
+  offline: "Offline",
+  starting: "Starting",
+  idle: "Idle",
+  running: "Running",
+  waiting_approval: "Waiting for approval",
+  succeeded: "Succeeded",
+  failed: "Failed",
 };
 
 function sanitizeErrorMessage(value: string) {
@@ -26,12 +36,31 @@ export function RuntimeDashboard() {
   const [data, setData] = useState<RuntimeData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const unmountedRef = useRef(false);
   const load = useCallback(async () => {
-    try { setData(await getRuntime()); setError(""); }
-    catch (e) { setError(e instanceof Error ? e.message : "Runtime unavailable"); }
-    finally { setLoading(false); }
+    requestIdRef.current += 1;
+    const requestId = requestIdRef.current;
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    try {
+      const runtime = await getRuntime(controller.signal);
+      if (unmountedRef.current || requestId !== requestIdRef.current) return;
+      setData(runtime);
+      setError("");
+    }
+    catch (e) {
+      if (controller.signal.aborted || unmountedRef.current || requestId !== requestIdRef.current) return;
+      setError(e instanceof Error ? e.message : "Runtime unavailable");
+    }
+    finally {
+      if (!unmountedRef.current && requestId === requestIdRef.current) setLoading(false);
+    }
   }, []);
   useEffect(() => {
+    unmountedRef.current = false;
     const initialLoad = window.setTimeout(() => {
       void load();
     }, 0);
@@ -41,6 +70,8 @@ export function RuntimeDashboard() {
     }, 10000);
 
     return () => {
+      unmountedRef.current = true;
+      abortControllerRef.current?.abort();
       window.clearTimeout(initialLoad);
       window.clearInterval(id);
     };
@@ -66,7 +97,7 @@ export function RuntimeDashboard() {
       <Metric label="API latency" value={`${data.proxy?.latencyMs ?? 0} ms`} icon={Server} />
     </section>
     <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
-      <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><h2 className="font-medium">Agent registry</h2><div className="mt-4 grid gap-3 md:grid-cols-2">{data.agents.map(a => <div key={a.id} className="rounded-xl border border-[var(--border)] bg-black/10 p-4"><div className="flex gap-3"><Bot size={18} className="text-violet-200" /><div><p className="font-medium">{a.name} <span className="ml-2 text-xs capitalize text-[var(--muted)]">{a.status}</span></p><p className="mt-1 text-xs text-[var(--muted)]">{a.description}</p></div></div></div>)}</div></article>
+      <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><h2 className="font-medium">Agent registry</h2><div className="mt-4 grid gap-3 md:grid-cols-2">{data.agents.map(a => <div key={a.id} className="rounded-xl border border-[var(--border)] bg-black/10 p-4"><div className="flex gap-3"><Bot size={18} className="text-violet-200" /><div><p className="font-medium">{a.name} <span className="ml-2 text-xs text-[var(--muted)]">{agentStatusLabel[a.status]}</span></p><p className="mt-1 text-xs text-[var(--muted)]">{a.description}</p></div></div></div>)}</div></article>
       <div className="space-y-5"><article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex justify-between"><h2>Tasks</h2><ListChecks size={18} /></div><div className="mt-4 grid grid-cols-2 gap-3">{tasks.map(([k,v]) => <div key={k} className="rounded-xl border border-[var(--border)] p-3"><p className="text-xs capitalize text-[var(--muted)]">{k}</p><p className="mt-1 text-xl font-semibold">{v}</p></div>)}</div></article><article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex justify-between"><h2>Repositories</h2><FolderGit2 size={18} /></div><p className="mt-4 text-3xl font-semibold">{data.repositories.connected}</p><p className="text-sm text-[var(--muted)]">Connected</p></article></div>
     </section>
     <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex justify-between"><h2>Recent activity</h2><Activity size={18} /></div>{data.recent_activity.length ? <div className="mt-4 divide-y divide-[var(--border)]">{data.recent_activity.map(x => <div key={x.id} className="flex justify-between py-3 text-sm"><span>{x.message}</span><span className="text-xs text-[var(--muted)]">{new Date(x.timestamp).toLocaleString()}</span></div>)}</div> : <p className="mt-5 rounded-xl border border-dashed border-[var(--border)] p-8 text-center text-sm text-[var(--muted)]">No recent activity.</p>}</article>

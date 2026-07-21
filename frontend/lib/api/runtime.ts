@@ -3,10 +3,17 @@ export type RuntimeData = {
     status: "healthy" | "degraded" | "offline";
     version: string;
     environment: string;
+    started_at?: string | null;
     uptime_seconds: number;
+    checked_at?: string;
     metrics: { cpu_percent: number; memory_percent: number; disk_percent: number };
   };
-  agents: Array<{ id: string; name: string; status: "idle" | "running" | "offline" | "error"; description: string }>;
+  agents: Array<{
+    id: string;
+    name: string;
+    status: "offline" | "starting" | "idle" | "running" | "waiting_approval" | "succeeded" | "failed";
+    description: string;
+  }>;
   tasks: { queued: number; running: number; completed: number; failed: number };
   repositories: { connected: number };
   recent_activity: Array<{ id: string; timestamp: string; level: string; message: string }>;
