@@ -34,6 +34,10 @@ class ChangeTaskCreateRequest(BaseModel):
     task_id: str | None = None
 
 
+class ChangeTaskApprovalRequest(BaseModel):
+    reason: str | None = None
+
+
 def run(fn):
     try:
         return fn()
@@ -90,6 +94,36 @@ def execute_change_task(
     _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
 ):
     return run(lambda: change_task_orchestrator.execute(task_id)).to_dict()
+
+
+@router.post("/{task_id}/approve")
+def approve_change_task(
+    task_id: str,
+    request: ChangeTaskApprovalRequest,
+    principal: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
+    return run(
+        lambda: change_task_orchestrator.approve(
+            task_id,
+            actor=principal.user.username,
+            reason=request.reason,
+        )
+    ).to_dict()
+
+
+@router.post("/{task_id}/reject")
+def reject_change_task(
+    task_id: str,
+    request: ChangeTaskApprovalRequest,
+    principal: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
+    return run(
+        lambda: change_task_orchestrator.reject(
+            task_id,
+            actor=principal.user.username,
+            reason=request.reason,
+        )
+    ).to_dict()
 
 
 @router.post("/{task_id}/cancel")

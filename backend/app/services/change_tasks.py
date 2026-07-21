@@ -24,6 +24,12 @@ class TaskStatus(str, Enum):
     ROLLED_BACK = "rolled_back"
 
 
+class TaskApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class StepStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
@@ -78,6 +84,7 @@ class ChangeTask:
     description: str
     steps: list[ChangeStep]
     status: TaskStatus = TaskStatus.PLANNED
+    approval_status: TaskApprovalStatus = TaskApprovalStatus.PENDING
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
     started_at: str | None = None
@@ -88,7 +95,13 @@ class ChangeTask:
     stop_on_error: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
     history: list[dict[str, Any]] = field(default_factory=list)
+    audit_events: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    approved_at: str | None = None
+    approved_by: str | None = None
+    rejected_at: str | None = None
+    rejected_by: str | None = None
+    approval_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -97,6 +110,7 @@ class ChangeTask:
             "description": self.description,
             "steps": [step.to_dict() for step in self.steps],
             "status": self.status.value,
+            "approval_status": self.approval_status.value,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "started_at": self.started_at,
@@ -107,13 +121,26 @@ class ChangeTask:
             "stop_on_error": self.stop_on_error,
             "metadata": self.metadata,
             "history": self.history,
+            "audit_events": self.audit_events,
             "error": self.error,
+            "approved_at": self.approved_at,
+            "approved_by": self.approved_by,
+            "rejected_at": self.rejected_at,
+            "rejected_by": self.rejected_by,
+            "approval_reason": self.approval_reason,
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "ChangeTask":
         data = dict(payload)
         data["status"] = TaskStatus(data.get("status", TaskStatus.PLANNED))
+        approval_status = data.get("approval_status")
+        if approval_status is None:
+            data["approval_status"] = (
+                TaskApprovalStatus.APPROVED if data.get("dry_run", True) else TaskApprovalStatus.PENDING
+            )
+        else:
+            data["approval_status"] = TaskApprovalStatus(approval_status)
         data["steps"] = [ChangeStep.from_dict(item) for item in data.get("steps", [])]
         return cls(**data)
 
@@ -264,6 +291,9 @@ class ChangeTaskOrchestrator:
             confirmed=confirmed,
             stop_on_error=stop_on_error,
             metadata=metadata or {},
+            approval_status=(
+                TaskApprovalStatus.APPROVED if dry_run else TaskApprovalStatus.PENDING
+            ),
         )
         self._event(task, "task_planned", {"step_count": len(task.steps)})
         return self.store.save(task)
@@ -273,9 +303,20 @@ class ChangeTaskOrchestrator:
         task: ChangeTask,
         event: str,
         details: dict[str, Any] | None = None,
+        *,
+        actor: str | None = None,
+        reason: str | None = None,
     ) -> None:
-        task.history.append(
-            {"timestamp": utc_now(), "event": event, "details": details or {}}
+        timestamp = utc_now()
+        task.history.append({"timestamp": timestamp, "event": event, "details": details or {}})
+        task.audit_events.append(
+            {
+                "timestamp": timestamp,
+                "event": event,
+                "actor": actor,
+                "reason": reason,
+                "details": details or {},
+            }
         )
 
     def _completed_idempotency_keys(self, task: ChangeTask) -> set[str]:
@@ -297,6 +338,10 @@ class ChangeTaskOrchestrator:
             if not task.dry_run and not task.confirmed:
                 raise TaskOrchestrationError(
                     "Explicit confirmation is required for live task execution"
+                )
+            if not task.dry_run and task.approval_status != TaskApprovalStatus.APPROVED:
+                raise TaskOrchestrationError(
+                    "Live task execution requires approval"
                 )
 
             task.status = TaskStatus.RUNNING
@@ -426,6 +471,42 @@ class ChangeTaskOrchestrator:
                 task.status = TaskStatus.ROLLED_BACK
                 task.completed_at = utc_now()
                 self._event(task, "task_rolled_back")
+            return self.store.save(task)
+
+    def approve(self, task_id: str, *, actor: str | None = None, reason: str | None = None) -> ChangeTask:
+        with self._lock:
+            task = self.store.get(task_id)
+            task.approval_status = TaskApprovalStatus.APPROVED
+            task.approved_at = utc_now()
+            task.approved_by = actor
+            task.rejected_at = None
+            task.rejected_by = None
+            task.approval_reason = reason
+            self._event(
+                task,
+                "task_approved",
+                {"approval_status": task.approval_status.value},
+                actor=actor,
+                reason=reason,
+            )
+            return self.store.save(task)
+
+    def reject(self, task_id: str, *, actor: str | None = None, reason: str | None = None) -> ChangeTask:
+        with self._lock:
+            task = self.store.get(task_id)
+            task.approval_status = TaskApprovalStatus.REJECTED
+            task.rejected_at = utc_now()
+            task.rejected_by = actor
+            task.approved_at = None
+            task.approved_by = None
+            task.approval_reason = reason
+            self._event(
+                task,
+                "task_rejected",
+                {"approval_status": task.approval_status.value},
+                actor=actor,
+                reason=reason,
+            )
             return self.store.save(task)
 
     def get(self, task_id: str) -> ChangeTask:
