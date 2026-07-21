@@ -14,3 +14,5 @@ frontend/.env.local
 backend/data/odin_auth.db
 backend/data/odin_auth.db-shm
 backend/data/odin_auth.db-wal
+.odin/
+*.ow005b.bak
