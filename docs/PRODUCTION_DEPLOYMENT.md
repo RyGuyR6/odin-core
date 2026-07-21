@@ -33,21 +33,26 @@ For each service:
 ## DNS records
 
 Add the following records at your domain registrar.
-Render shows the exact IP / target for each record inside the Custom Domains
-panel — use those values if they differ from the ones below.
+**Use the exact values shown in the Render Custom Domains panel** — Render
+displays the definitive IP or CNAME target for each service.  The table below
+shows the record *types* and subdomain names; fill in the Render-provided
+values for the `Value` column.
 
 ```
-Type    Name    Value                           TTL
--------------------------------------------------------
-A       @       216.24.57.1                     300   ← apex for odincore.net (verify in Render)
-CNAME   www     odin-web-5uhp.onrender.com      300
-CNAME   api     odin-api-63t2.onrender.com      300
-CNAME   mcp     odin-mcp.onrender.com           300
+Type    Name    Value                               TTL
+-----------------------------------------------------------
+A/ALIAS @       <apex IP from Render dashboard>     300
+CNAME   www     odin-web-5uhp.onrender.com          300
+CNAME   api     odin-api-63t2.onrender.com          300
+CNAME   mcp     odin-mcp.onrender.com               300
 ```
 
 **Notes:**
-- If your registrar supports `ALIAS` / `ANAME` records, use
-  `ALIAS @ odin-web-5uhp.onrender.com` for the apex instead of the A record.
+- Render shows the required A-record IP (or recommends an ALIAS/ANAME record)
+  in **Dashboard → odin-web → Settings → Custom Domains**.  Always use the
+  value from the dashboard — do not copy an IP from external sources.
+- If your registrar supports `ALIAS` / `ANAME` records, prefer
+  `ALIAS @ odin-web-5uhp.onrender.com` for the apex instead of a bare A record.
 - A TTL of 300 (5 minutes) allows fast iteration during cutover.
   Raise to `3600` once stable.
 
@@ -77,7 +82,7 @@ Set these in **Render Dashboard → [service] → Environment**.
 | `ODIN_ENV` | `production` |
 | `ODIN_AUTH_SECRET` | *(generate — see below)* |
 | `ODIN_AUTH_SECURE_COOKIES` | `true` |
-| `ODIN_AUTH_COOKIE_DOMAIN` | `.odincore.net` |
+| `ODIN_AUTH_COOKIE_DOMAIN` | `.odincore.net` *(see note)* |
 | `ODIN_MCP_URL` | `https://mcp.odincore.net` |
 | `ODIN_MCP_HEALTH_URL` | `https://mcp.odincore.net/health` |
 
@@ -87,8 +92,13 @@ Generate a secret:
 python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
 ```
 
-> `ODIN_AUTH_COOKIE_DOMAIN=.odincore.net` (leading dot) scopes auth cookies to
-> all subdomains so they are valid for both `odincore.net` and `api.odincore.net`.
+> **`ODIN_AUTH_COOKIE_DOMAIN` note** — the frontend at `odincore.net` proxies
+> all auth calls through `/api/auth/*`, so cookies are received by the browser
+> as responses from `odincore.net`.  Without `ODIN_AUTH_COOKIE_DOMAIN` the
+> cookie is scoped to `odincore.net` only, which is sufficient for the proxy
+> architecture.  Set `ODIN_AUTH_COOKIE_DOMAIN=.odincore.net` (leading dot) only
+> if you need the same cookie to be sent to `api.odincore.net` directly from the
+> browser (e.g. for non-proxied API clients).  When in doubt, omit it.
 
 ### odin-mcp (`odin-mcp.onrender.com`)
 

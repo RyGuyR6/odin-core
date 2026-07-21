@@ -19,7 +19,7 @@ def test_mcp_allowed_hosts_contains_api_odincore_net() -> None:
 
     importlib.reload(mcp_module)
     server = mcp_module.create_mcp()
-    hosts = server.transport_security.allowed_hosts
+    hosts = server.settings.transport_security.allowed_hosts
     assert "api.odincore.net" in hosts
 
 
@@ -29,7 +29,7 @@ def test_mcp_allowed_hosts_contains_render_url() -> None:
 
     importlib.reload(mcp_module)
     server = mcp_module.create_mcp()
-    hosts = server.transport_security.allowed_hosts
+    hosts = server.settings.transport_security.allowed_hosts
     assert "odin-api-63t2.onrender.com" in hosts
 
 
@@ -39,7 +39,7 @@ def test_mcp_stale_host_not_present() -> None:
 
     importlib.reload(mcp_module)
     server = mcp_module.create_mcp()
-    hosts = server.transport_security.allowed_hosts
+    hosts = server.settings.transport_security.allowed_hosts
     assert "odin-core.onrender.com" not in hosts
 
 
