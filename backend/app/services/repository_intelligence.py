@@ -359,7 +359,7 @@ class RepositoryIntelligenceService:
         )
 
     def scan_repository(self, full_name: str, local_path: str) -> RepositoryScanRecord:
-        root = self._validate_local_path(local_path)
+        root = self.validate_local_path(local_path)
         self.mark_scanning(full_name, str(root))
         try:
             payload = self._build_payload(full_name, root)
@@ -384,7 +384,7 @@ class RepositoryIntelligenceService:
             ),
         )
 
-    def _validate_local_path(self, local_path: str) -> Path:
+    def validate_local_path(self, local_path: str) -> Path:
         if not local_path:
             raise ValueError("A local repository path is required before scanning.")
         raw_path = Path(local_path).expanduser()
@@ -1097,7 +1097,7 @@ class RepositoryIntelligenceService:
             name = Path(path).name
             if name in ENTRYPOINT_NAMES or name.endswith(CONFIG_SUFFIXES):
                 candidates.append(path)
-            elif path.startswith("frontend/app/") and name in {"page.tsx", "layout.tsx", "route.ts"}:
+            elif "/app/" in f"/{path}" and name in {"page.tsx", "layout.tsx", "route.ts"}:
                 candidates.append(path)
         return sorted(dict.fromkeys(candidates))[:20]
 

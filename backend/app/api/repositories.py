@@ -198,6 +198,15 @@ def _update_local_path(full_name: str, local_path: str) -> None:
         connection.commit()
 
 
+def _validated_local_path(local_path: str | None) -> str | None:
+    if not local_path:
+        return None
+    try:
+        return str(repository_intelligence_service.validate_local_path(local_path))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("")
 def list_connected(_: Principal = Depends(get_current_principal)):
     with _connect() as connection:
@@ -248,6 +257,7 @@ async def connect_repository(
     request: ConnectRepositoryRequest,
     principal: Principal = Depends(require_roles(UserRole.ADMIN)),
 ):
+    local_path = _validated_local_path(request.local_path)
     repository = await _github_get(f"/repos/{request.full_name}")
     now = datetime.now(UTC).isoformat()
     values = (
@@ -262,7 +272,7 @@ async def connect_repository(
         principal.user.id,
         now,
         now,
-        request.local_path,
+        local_path,
     )
     with _connect() as connection:
         connection.execute(
@@ -303,7 +313,9 @@ def scan_repository(
     row = _require_connected(owner, name)
     full_name = f"{owner}/{name}"
     if request.local_path:
-        _update_local_path(full_name, request.local_path)
+        validated_local_path = _validated_local_path(request.local_path)
+        assert validated_local_path is not None
+        _update_local_path(full_name, validated_local_path)
         row = _require_connected(owner, name)
     local_path = _resolve_scan_path(row)
     scan = repository_intelligence_service.scan_repository(full_name, local_path)

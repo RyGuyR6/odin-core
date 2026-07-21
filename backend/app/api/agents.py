@@ -49,23 +49,23 @@ def _repository_context(value: Any) -> Any:
 
 
 def _enrich_agent_request(request: AgentRunRequest) -> AgentRunRequest:
-    request.input = dict(request.input)
-    request.context = dict(request.context)
-    if "repository" in request.input:
-        request.input["repository"] = _repository_context(request.input["repository"])
-    if "repository" in request.context:
-        request.context["repository"] = _repository_context(request.context["repository"])
-    return request
+    input_data = dict(request.input)
+    context_data = dict(request.context)
+    if "repository" in input_data:
+        input_data["repository"] = _repository_context(input_data["repository"])
+    if "repository" in context_data:
+        context_data["repository"] = _repository_context(context_data["repository"])
+    return request.model_copy(update={"input": input_data, "context": context_data})
 
 
 def _enrich_workflow_request(request: WorkflowRunRequest) -> WorkflowRunRequest:
-    request.input = dict(request.input)
-    request.context = dict(request.context)
-    if "repository" in request.input:
-        request.input["repository"] = _repository_context(request.input["repository"])
-    if "repository" in request.context:
-        request.context["repository"] = _repository_context(request.context["repository"])
-    return request
+    input_data = dict(request.input)
+    context_data = dict(request.context)
+    if "repository" in input_data:
+        input_data["repository"] = _repository_context(input_data["repository"])
+    if "repository" in context_data:
+        context_data["repository"] = _repository_context(context_data["repository"])
+    return request.model_copy(update={"input": input_data, "context": context_data})
 
 
 @router.get("")

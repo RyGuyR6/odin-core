@@ -193,7 +193,9 @@ export default function RepositoriesPage() {
     () => connected.find((repository) => repository.full_name === selected) ?? null,
     [connected, selected],
   );
-  const selectedScanStatus = status?.intelligence.status ?? selectedRepository?.scan_status ?? "unknown";
+  const selectedScanStatus = selectedRepository
+    ? status?.intelligence.status ?? selectedRepository.scan_status ?? "unknown"
+    : "no_selection";
 
   const clearDetails = useCallback(() => {
     setStatus(null);
@@ -206,9 +208,10 @@ export default function RepositoriesPage() {
 
   const loadSymbols = useCallback(
     async (fullName: string, query = "") => {
-      const result = await request<SymbolLookupResponse>(
-        `/${fullName}/symbols${query ? `?q=${encodeURIComponent(query)}` : ""}`,
-      );
+      const search = new URLSearchParams();
+      if (query) search.set("q", query);
+      const suffix = search.size > 0 ? `?${search.toString()}` : "";
+      const result = await request<SymbolLookupResponse>(`/${fullName}/symbols${suffix}`);
       setSymbols(result.symbols);
     },
     [],
@@ -345,7 +348,21 @@ export default function RepositoriesPage() {
       setTree(result.payload?.directory_tree ?? null);
       setGraph(result.payload?.dependency_graph ?? null);
       setArchitecture(result.payload?.architecture ?? []);
-      await Promise.all([load(), loadDetails(selected), loadSymbols(selected, symbolQuery)]);
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              intelligence: {
+                ...current.intelligence,
+                status: result.status,
+                local_path: result.local_path ?? localPath,
+                summary: result.payload?.summary ?? current.intelligence.summary ?? null,
+                architecture: result.payload?.architecture ?? current.intelligence.architecture ?? [],
+              },
+            }
+          : current,
+      );
+      await Promise.all([load(), loadSymbols(selected, symbolQuery)]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to scan repository");
     } finally {
