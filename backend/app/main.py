@@ -1,6 +1,9 @@
+import os
+
+import httpx
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from starlette.routing import Mount
 
 from app.api.health import router as health_router
@@ -85,6 +88,34 @@ app.include_router(planner_router)
 
 # MCP endpoint
 app.router.routes.append(mcp_mount)
+
+
+
+
+@app.get("/api/mcp/status", tags=["System"])
+async def mcp_status():
+    health_url = os.getenv(
+        "ODIN_MCP_HEALTH_URL",
+        "https://odin-mcp.onrender.com/health",
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(health_url)
+            response.raise_for_status()
+
+        return {
+            "api": "online",
+            "mcp": "online",
+            "mcp_url": os.getenv("ODIN_MCP_URL"),
+            "mcp_health": response.json(),
+        }
+
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Unable to reach Odin MCP: {exc}",
+        ) from exc
 
 
 @app.get("/", tags=["System"])
