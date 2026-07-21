@@ -6,6 +6,7 @@ from app.services.change_tasks import (
     ChangeTaskOrchestrator,
     JsonTaskStore,
     StepStatus,
+    TaskApprovalStatus,
     TaskOrchestrationError,
     TaskStatus,
 )
@@ -50,10 +51,40 @@ def test_live_task_executes_registered_action(orchestrator):
         dry_run=False,
         confirmed=True,
     )
+    orchestrator.approve(task.id, actor="reviewer")
     result = orchestrator.execute(task.id)
     assert result.status == TaskStatus.SUCCEEDED
     assert calls == [{"x": 1}]
     assert result.steps[0].result == {"ok": True}
+
+
+def test_execution_requires_approval_for_live_tasks(orchestrator):
+    task = orchestrator.create_task(
+        title="Needs approval",
+        steps=[{"action": "echo", "parameters": {"message": "hello"}}],
+        dry_run=False,
+        confirmed=True,
+    )
+
+    with pytest.raises(TaskOrchestrationError, match="approval"):
+        orchestrator.execute(task.id)
+
+
+def test_approval_changes_are_audited(orchestrator):
+    task = orchestrator.create_task(
+        title="Audit trail",
+        steps=[{"action": "echo", "parameters": {"message": "hello"}}],
+    )
+
+    approved = orchestrator.approve(task.id, actor="reviewer", reason="looks good")
+    assert approved.approval_status == TaskApprovalStatus.APPROVED
+    assert approved.audit_events[-1]["event"] == "task_approved"
+    assert approved.audit_events[-1]["actor"] == "reviewer"
+
+    rejected = orchestrator.reject(task.id, actor="reviewer", reason="needs changes")
+    assert rejected.approval_status == TaskApprovalStatus.REJECTED
+    assert rejected.audit_events[-1]["event"] == "task_rejected"
+    assert rejected.audit_events[-1]["reason"] == "needs changes"
 
 
 def test_stop_on_error_persists_failure(orchestrator):
@@ -69,6 +100,7 @@ def test_stop_on_error_persists_failure(orchestrator):
         dry_run=False,
         confirmed=True,
     )
+    orchestrator.approve(task.id, actor="reviewer")
     result = orchestrator.execute(task.id)
     assert result.status == TaskStatus.FAILED
     assert result.steps[0].status == StepStatus.FAILED
