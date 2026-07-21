@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from odin_mcp.core.brain import OdinBrain
 from odin_mcp.models.engineering_goal import EngineeringGoal
 from odin_mcp.services.goal_planner import GoalPlanner
 from odin_mcp.services.repository_planner import RepositoryPlanner
@@ -58,28 +57,6 @@ class Odin:
         self.executor = AutonomousExecutor(
             self.plan_executor,
             repo_root,
-        )
-
-        self.brain = OdinBrain()
-        self.brain.register(
-            "repository_planner",
-            self.repository_planner,
-        )
-        self.brain.register(
-            "engineering_planner",
-            self.engineering_planner,
-        )
-        self.brain.register(
-            "executor",
-            self.executor,
-        )
-        self.brain.register(
-            "engineering_service",
-            self.engineering_service,
-        )
-        self.brain.register(
-            "repository_search",
-            self.repository_search,
         )
 
     def execute(

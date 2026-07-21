@@ -1,0 +1,73 @@
+"""Odin MCP server."""
+
+from __future__ import annotations
+
+from importlib.metadata import version
+from pathlib import Path
+import platform
+import sys
+
+
+# Allow both:
+#   python -m odin_mcp.server
+#   python odin_mcp/server.py
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+from mcp.server.fastmcp import FastMCP
+
+from odin_mcp.tools.git import register_git_tools
+from odin_mcp.tools.filesystem import register_filesystem_tools
+from odin_mcp.tools.repository_search import register_repository_search_tools
+from odin_mcp.tools.repository_intelligence import register_repository_intelligence_tools
+from odin_mcp.tools.repository_patch import register_patch_tools
+from odin_mcp.tools.engineering import register_engineering_tools
+from odin_mcp.tools.odin import register_odin_tools
+from odin_mcp.tools.system import register_system_tools
+
+
+mcp = FastMCP(
+    "Odin",
+    host="0.0.0.0",
+    port=8000,
+    stateless_http=True,
+    json_response=True,
+)
+
+
+@mcp.tool()
+def ping() -> str:
+    """Check whether the Odin MCP server is online."""
+
+    return "Odin MCP is online."
+
+
+@mcp.tool(name="odin.info")
+def odin_info() -> dict[str, object]:
+    """Return information about the running Odin MCP server."""
+
+    return {
+        "name": "Odin",
+        "version": "0.1.0",
+        "mcp_sdk": version("mcp"),
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "transport": "streamable-http",
+        "status": "online",
+    }
+
+
+register_git_tools(mcp)
+register_filesystem_tools(mcp)
+register_repository_search_tools(mcp)
+register_repository_intelligence_tools(mcp)
+register_patch_tools(mcp)
+register_engineering_tools(mcp)
+register_odin_tools(mcp)
+register_system_tools(mcp)
+
+
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")

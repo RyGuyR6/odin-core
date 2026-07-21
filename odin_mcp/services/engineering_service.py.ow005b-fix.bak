@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from typing import Any
 
-from odin_mcp.services.filesystem_service import (
-    FilesystemService,
-    REPOSITORY_ROOT,
-)
+from odin_mcp.services.filesystem_service import FilesystemService
 from odin_mcp.services.git_service import GitService
 from odin_mcp.services.patch_service import PatchService
 from odin_mcp.services.repository_search_service import (
@@ -24,15 +19,11 @@ class EngineeringService:
     engineering operations.
     """
 
-    def __init__(
-        self,
-        repository_root: Path = REPOSITORY_ROOT,
-    ) -> None:
-        self.repository_root = repository_root.resolve()
-        self.fs = FilesystemService(self.repository_root)
-        self.git = GitService(self.repository_root)
-        self.patch = PatchService(self.repository_root)
-        self.search = RepositorySearchService(self.repository_root)
+    def __init__(self) -> None:
+        self.fs = FilesystemService()
+        self.git = GitService()
+        self.patch = PatchService()
+        self.search = RepositorySearchService()
 
     def status(self) -> dict[str, Any]:
         """Return an engineering status snapshot."""

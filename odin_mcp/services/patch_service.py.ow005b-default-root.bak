@@ -3,18 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from odin_mcp.services.filesystem_service import (
-    FilesystemService,
-    REPOSITORY_ROOT,
-)
+from odin_mcp.services.filesystem_service import FilesystemService
 
 
 class PatchService:
 
-    def __init__(
-        self,
-        repository_root: Path = REPOSITORY_ROOT,
-    ) -> None:
+    def __init__(self, repository_root: Path) -> None:
         self.repository_root = repository_root.resolve()
         self.fs = FilesystemService(self.repository_root)
 
