@@ -27,8 +27,9 @@ def test_change_tasks_require_authentication(tmp_path: Path) -> None:
     response = client.get("/change-tasks")
     assert response.status_code == 401
 
+    unique_username = f"admin-{os.getpid()}-{tmp_path.name}"
     user = auth_service.create_user(
-        username="admin",
+        username=unique_username,
         password="a-very-strong-test-password",
         role=UserRole.ADMIN,
     )
