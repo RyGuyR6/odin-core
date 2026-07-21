@@ -48,9 +48,10 @@ class RuntimeStatus(BaseModel):
     checked_at: datetime
     metrics: Metrics
 
+
 class Agent(BaseModel):
     """Current computed lifecycle state for a registered agent."""
-class Agent(BaseModel):
+
     id: str
     name: str
     status: AgentState

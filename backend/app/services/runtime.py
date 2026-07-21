@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from time import perf_counter
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from app.core.logger import logger
 from app.services.container import ServiceContainer, container
