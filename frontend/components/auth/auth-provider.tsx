@@ -64,9 +64,8 @@ export function AuthProvider({
   const login = useCallback(
     async (identity: string, password: string, rememberMe: boolean) => {
       const result = await authClient.login({
-        identity,
+        username: identity,
         password,
-        remember_me: rememberMe,
       });
       setUser(result.user);
       return result.user;

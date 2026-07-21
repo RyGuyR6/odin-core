@@ -24,8 +24,21 @@ async function authRequest<T>(
   if (!response.ok) {
     let message = `Authentication request failed (${response.status})`;
     try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) message = payload.detail;
+      const payload = (await response.json()) as {
+        detail?: string | Array<{ msg?: string; loc?: Array<string | number> }>;
+      };
+
+      if (typeof payload.detail === "string") {
+        message = payload.detail;
+      } else if (Array.isArray(payload.detail)) {
+        message = payload.detail
+          .map((item) => {
+            const location = item.loc?.slice(1).join(".");
+            return location ? `${location}: ${item.msg ?? "Invalid value"}` : item.msg;
+          })
+          .filter(Boolean)
+          .join("; ");
+      }
     } catch {
       // Keep the status-based message when the response is not JSON.
     }
@@ -45,9 +58,8 @@ export const authClient = {
     password: string;
   }) => authRequest<AuthResponse>("bootstrap", { method: "POST", body: payload }),
   login: (payload: {
-    identity: string;
+    username: string;
     password: string;
-    remember_me: boolean;
   }) => authRequest<AuthResponse>("login", { method: "POST", body: payload }),
   logout: () => authRequest<void>("logout", { method: "POST" }),
   refresh: () => authRequest<AuthResponse>("refresh", { method: "POST" }),
