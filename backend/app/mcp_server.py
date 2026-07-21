@@ -37,8 +37,8 @@ def create_mcp() -> FastMCP:
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=[
-                "odin-core.onrender.com",
-                "odin-core.onrender.com:*",
+                "odin-api-63t2.onrender.com",
+                "odin-api-63t2.onrender.com:*",
                 "api.odincore.net",
                 "api.odincore.net:*",
                 "localhost",

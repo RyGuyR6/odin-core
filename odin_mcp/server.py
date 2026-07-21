@@ -17,6 +17,7 @@ if __package__ in {None, ""}:
 
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -38,6 +39,19 @@ mcp = FastMCP(
     port=int(os.getenv("PORT", "8000")),
     stateless_http=True,
     json_response=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            "odin-mcp.onrender.com",
+            "odin-mcp.onrender.com:*",
+            "mcp.odincore.net",
+            "mcp.odincore.net:*",
+            "localhost",
+            "localhost:*",
+            "127.0.0.1",
+            "127.0.0.1:*",
+        ],
+    ),
 )
 
 
