@@ -28,6 +28,7 @@ from app.api.agents import (
     router as agents_router,
     workflows_router,
 )
+from app.auth import auth_service
 from app.core.odin import Odin
 from app.core.settings import settings
 from app.mcp_server import create_mcp
@@ -44,6 +45,7 @@ mcp_mount = Mount("/mcp", app=_initial_mcp.streamable_http_app())
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await runtime.startup(storage_initialize=storage_service.initialize)
+    auth_service.bootstrap_admin()
 
     active_mcp = create_mcp()
     mcp_mount.app = active_mcp.streamable_http_app()
