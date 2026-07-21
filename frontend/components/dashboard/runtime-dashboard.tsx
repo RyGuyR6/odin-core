@@ -10,6 +10,10 @@ const badge = {
   offline: "border-rose-400/25 bg-rose-400/10 text-rose-200",
 };
 
+function sanitizeErrorMessage(value: string) {
+  return value.replace(/<[^>]*>/g, "").replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+}
+
 function Metric({ label, value, progress, icon: Icon }: { label: string; value: string; progress?: number; icon: typeof Cpu }) {
   return <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
     <div className="flex items-center justify-between"><p className="text-sm text-[var(--muted)]">{label}</p><Icon size={18} className="text-violet-200" /></div>
@@ -43,16 +47,18 @@ export function RuntimeDashboard() {
   }, [load]);
 
   if (loading && !data) return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0,1,2,3].map(i => <div key={i} className="h-40 animate-pulse rounded-2xl border border-[var(--border)] bg-[var(--surface)]" />)}</div>;
-  if (!data) return <div className="rounded-2xl border border-rose-400/20 bg-rose-400/5 p-6"><TriangleAlert className="text-rose-300" /><p className="mt-3">{error}</p><button onClick={() => void load()} className="mt-4 rounded-lg border border-[var(--border)] px-3 py-2">Retry</button></div>;
+  if (!data) return <div className="rounded-2xl border border-rose-400/20 bg-rose-400/5 p-6"><TriangleAlert className="text-rose-300" /><p className="mt-3">{sanitizeErrorMessage(error)}</p><button onClick={() => void load()} className="mt-4 rounded-lg border border-[var(--border)] px-3 py-2">Retry</button></div>;
 
   const m = data.runtime.metrics;
   const tasks = Object.entries(data.tasks);
+  const currentTask = data.recent_activity[0]?.message ?? "No active task";
+  const lastHeartbeat = data.proxy?.checkedAt ? new Date(data.proxy.checkedAt).toLocaleString() : "Unavailable";
   return <div className="space-y-5">
     <section className="flex flex-col gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 sm:flex-row sm:items-center sm:justify-between">
-      <div><div className="flex items-center gap-3"><h2 className="text-lg font-semibold">Odin runtime</h2><span className={`rounded-full border px-3 py-1 text-xs capitalize ${badge[data.runtime.status]}`}>{data.runtime.status}</span></div><p className="mt-2 text-sm text-[var(--muted)]">{data.runtime.environment} · v{data.runtime.version} · 10-second polling</p></div>
+      <div><div className="flex items-center gap-3"><h2 className="text-lg font-semibold">Odin runtime</h2><span className={`rounded-full border px-3 py-1 text-xs capitalize ${badge[data.runtime.status]}`}>{data.runtime.status}</span></div><p className="mt-2 text-sm text-[var(--muted)]">{data.runtime.environment} · v{data.runtime.version} · 10-second polling</p><p className="mt-1 text-xs text-[var(--muted)]">Current task: {currentTask}</p><p className="mt-1 text-xs text-[var(--muted)]">Last heartbeat: {lastHeartbeat}</p></div>
       <button onClick={() => void load()} className="rounded-lg border border-[var(--border)] p-2"><RefreshCw size={16} /></button>
     </section>
-    {error && <p className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-100">Refresh failed: {error}. Showing cached data.</p>}
+    {error && <p className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-100">Refresh failed: {sanitizeErrorMessage(error)}. Showing cached data.</p>}
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Metric label="CPU" value={`${m.cpu_percent.toFixed(1)}%`} progress={m.cpu_percent} icon={Cpu} />
       <Metric label="Memory" value={`${m.memory_percent.toFixed(1)}%`} progress={m.memory_percent} icon={MemoryStick} />

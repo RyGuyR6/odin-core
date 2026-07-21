@@ -11,26 +11,33 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "verify:ow-002": "node scripts/verify-ow-002.mjs",
     "start:standalone": "node .next/standalone/server.js",
     "verify:standalone": "node scripts/verify-standalone.mjs"
   },
   "dependencies": {
+    "lucide-react": "^0.468.0",
     "next": "16.2.10",
     "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "lucide-react": "^0.468.0"
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.2.10",
+    "jsdom": "^29.1.1",
     "postcss": "^8.0.0",
     "tailwindcss": "^4.1.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.10"
   }
 }
