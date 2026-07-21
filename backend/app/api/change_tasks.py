@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.auth import Principal, UserRole, get_current_principal, require_roles
 from app.services.change_tasks import (
     TaskOrchestrationError,
     change_task_orchestrator,
@@ -41,17 +42,25 @@ def run(fn):
 
 
 @router.get("")
-def list_change_tasks(limit: int = Query(default=100, ge=1, le=500)):
+def list_change_tasks(
+    limit: int = Query(default=100, ge=1, le=500),
+    _: Principal = Depends(get_current_principal),
+):
     return [task.to_dict() for task in change_task_orchestrator.list(limit)]
 
 
 @router.get("/actions")
-def list_change_task_actions():
+def list_change_task_actions(
+    _: Principal = Depends(get_current_principal),
+):
     return {"actions": change_task_orchestrator.available_actions()}
 
 
 @router.post("")
-def create_change_task(request: ChangeTaskCreateRequest):
+def create_change_task(
+    request: ChangeTaskCreateRequest,
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     task = run(
         lambda: change_task_orchestrator.create_task(
             title=request.title,
@@ -68,20 +77,32 @@ def create_change_task(request: ChangeTaskCreateRequest):
 
 
 @router.get("/{task_id}")
-def get_change_task(task_id: str):
+def get_change_task(
+    task_id: str,
+    _: Principal = Depends(get_current_principal),
+):
     return run(lambda: change_task_orchestrator.get(task_id)).to_dict()
 
 
 @router.post("/{task_id}/execute")
-def execute_change_task(task_id: str):
+def execute_change_task(
+    task_id: str,
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     return run(lambda: change_task_orchestrator.execute(task_id)).to_dict()
 
 
 @router.post("/{task_id}/cancel")
-def cancel_change_task(task_id: str):
+def cancel_change_task(
+    task_id: str,
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     return run(lambda: change_task_orchestrator.cancel(task_id)).to_dict()
 
 
 @router.post("/{task_id}/rollback")
-def rollback_change_task(task_id: str):
+def rollback_change_task(
+    task_id: str,
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     return run(lambda: change_task_orchestrator.rollback(task_id)).to_dict()
