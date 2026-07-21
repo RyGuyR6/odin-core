@@ -7,12 +7,14 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/prepare-standalone.mjs",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "verify": "npm run lint && npm run typecheck && npm run build",
-    "verify:ow-002": "node scripts/verify-ow-002.mjs"
+    "verify:ow-002": "node scripts/verify-ow-002.mjs",
+    "start:standalone": "node .next/standalone/server.js",
+    "verify:standalone": "node scripts/verify-standalone.mjs"
   },
   "dependencies": {
     "next": "16.2.10",
