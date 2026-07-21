@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.auth import (
@@ -51,17 +51,67 @@ class CreateApiKeyRequest(BaseModel):
     expires_at: str | None = None
 
 
+ODIN_SESSION_COOKIE = "odin_access"
+ODIN_SESSION_MAX_AGE = 60 * 60
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=ODIN_SESSION_COOKIE,
+        value=token,
+        max_age=ODIN_SESSION_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+
+
 @router.post("/login")
-def login(request: LoginRequest):
+def login(request: LoginRequest, response: Response):
     try:
-        return auth_service.login(request.username, request.password)
+        result = auth_service.login(request.username, request.password)
+        _set_session_cookie(response, result["access_token"])
+        return result
     except AuthenticationError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
-@router.get("/me", response_model=Principal)
+@router.get("/me")
 def me(principal: Principal = Depends(get_current_principal)):
-    return principal
+    return principal.user
+
+
+@router.post("/refresh")
+def refresh(
+    response: Response,
+    principal: Principal = Depends(get_current_principal),
+):
+    token, expires_in = auth_service.token_manager.create_access_token(
+        subject=principal.user.id,
+        username=principal.user.username,
+        role=principal.user.role.value,
+        scopes=principal.scopes,
+    )
+    _set_session_cookie(response, token)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": expires_in,
+        "user": principal.user.model_dump(mode="json"),
+    }
+
+
+@router.post("/logout", status_code=204)
+def logout(response: Response):
+    response.delete_cookie(
+        key=ODIN_SESSION_COOKIE,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @router.post("/users", response_model=UserPublic, status_code=201)
