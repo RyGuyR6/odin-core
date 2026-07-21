@@ -20,6 +20,7 @@ from app.models.runtime_dashboard import (
     RuntimeStatus,
     Tasks,
 )
+from app.services.repository_intelligence import repository_intelligence_service
 
 STARTED_AT = datetime.now(timezone.utc)
 STARTED_MONO = monotonic()
@@ -210,11 +211,12 @@ def _tasks() -> Tasks:
 
 def dashboard() -> Dashboard:
     """Return the runtime dashboard payload backed by current backend state."""
-    configured = bool(setting("GITHUB_TOKEN", "").strip())
     return Dashboard(
         runtime=runtime_status(),
         agents=agents(),
         tasks=_tasks(),
-        repositories=RepositorySummary(connected=1 if configured else 0),
+        repositories=RepositorySummary(
+            connected=repository_intelligence_service.count_connected_repositories()
+        ),
         recent_activity=_activity_events(),
     )

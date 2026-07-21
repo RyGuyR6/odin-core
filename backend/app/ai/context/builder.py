@@ -5,6 +5,8 @@ Builds execution context for AI tasks.
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.repository_intelligence import repository_intelligence_service
+
 
 @dataclass
 class ExecutionContext:
@@ -25,7 +27,15 @@ class ContextBuilder:
         objective: str,
         repository: str | None = None,
     ) -> ExecutionContext:
+        metadata: dict[str, Any] = {}
+        if repository:
+            repository_context = repository_intelligence_service.render_repository_context(
+                repository
+            )
+            if repository_context:
+                metadata["repository_context"] = repository_context
         return ExecutionContext(
             objective=objective,
             repository=repository,
+            metadata=metadata,
         )

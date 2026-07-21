@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.agents.exceptions import (
@@ -17,6 +19,7 @@ from app.agents.models import (
     WorkflowCreate,
     WorkflowRunRequest,
 )
+from app.services.repository_intelligence import repository_intelligence_service
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 workflows_router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -36,6 +39,33 @@ def _raise_http(exc: Exception) -> None:
     if isinstance(exc, (AgentError, ValueError)):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     raise HTTPException(status_code=500, detail="Unexpected agent runtime error.") from exc
+
+
+def _repository_context(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    enriched = repository_intelligence_service.render_repository_context(value.strip())
+    return enriched or value
+
+
+def _enrich_agent_request(request: AgentRunRequest) -> AgentRunRequest:
+    request.input = dict(request.input)
+    request.context = dict(request.context)
+    if "repository" in request.input:
+        request.input["repository"] = _repository_context(request.input["repository"])
+    if "repository" in request.context:
+        request.context["repository"] = _repository_context(request.context["repository"])
+    return request
+
+
+def _enrich_workflow_request(request: WorkflowRunRequest) -> WorkflowRunRequest:
+    request.input = dict(request.input)
+    request.context = dict(request.context)
+    if "repository" in request.input:
+        request.input["repository"] = _repository_context(request.input["repository"])
+    if "repository" in request.context:
+        request.context["repository"] = _repository_context(request.context["repository"])
+    return request
 
 
 @router.get("")
@@ -78,7 +108,7 @@ async def agent_history(
 @router.post("/run")
 async def run_agent(request: AgentRunRequest):
     try:
-        return (await get_agent_manager().run_agent(request)).model_dump()
+        return (await get_agent_manager().run_agent(_enrich_agent_request(request))).model_dump()
     except Exception as exc:
         _raise_http(exc)
 
@@ -154,7 +184,7 @@ async def create_workflow(request: WorkflowCreate):
 @workflows_router.post("/run")
 async def run_workflow(request: WorkflowRunRequest):
     try:
-        return (await get_agent_manager().run_workflow(request)).model_dump()
+        return (await get_agent_manager().run_workflow(_enrich_workflow_request(request))).model_dump()
     except Exception as exc:
         _raise_http(exc)
 
