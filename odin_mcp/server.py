@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib.metadata import version
 from pathlib import Path
+import os
 import platform
 import sys
 
@@ -17,6 +18,10 @@ if __package__ in {None, ""}:
 
 from mcp.server.fastmcp import FastMCP
 
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
 from odin_mcp.tools.git import register_git_tools
 from odin_mcp.tools.filesystem import register_filesystem_tools
 from odin_mcp.tools.repository_search import register_repository_search_tools
@@ -24,12 +29,13 @@ from odin_mcp.tools.repository_intelligence import register_repository_intellige
 from odin_mcp.tools.repository_patch import register_patch_tools
 from odin_mcp.tools.engineering import register_engineering_tools
 from odin_mcp.tools.odin import register_odin_tools
+from odin_mcp.tools.system import register_system_tools
 
 
 mcp = FastMCP(
     "Odin",
     host="0.0.0.0",
-    port=8000,
+    port=int(os.getenv("PORT", "8000")),
     stateless_http=True,
     json_response=True,
 )
@@ -64,8 +70,39 @@ register_repository_intelligence_tools(mcp)
 register_patch_tools(mcp)
 register_engineering_tools(mcp)
 register_odin_tools(mcp)
+register_system_tools(mcp)
 
+async def root(request: Request) -> JSONResponse:
+    return JSONResponse(
+        {
+            "name": "Odin MCP",
+            "status": "online",
+            "transport": "streamable-http",
+            "mcp_endpoint": "/mcp",
+            "health_endpoint": "/health",
+        }
+    )
+
+
+async def health(request: Request) -> JSONResponse:
+    return JSONResponse(
+        {
+            "status": "healthy",
+            "service": "odin-mcp",
+        }
+    )
+
+
+app = mcp.streamable_http_app()
+app.router.routes.insert(0, Route("/health", health, methods=["GET"]))
+app.router.routes.insert(0, Route("/", root, methods=["GET"]))
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8000")),
+    )
