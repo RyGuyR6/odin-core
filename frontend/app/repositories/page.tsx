@@ -194,6 +194,15 @@ export default function RepositoriesPage() {
     [connected, selected],
   );
 
+  const clearDetails = useCallback(() => {
+    setStatus(null);
+    setSummary(null);
+    setTree(null);
+    setGraph(null);
+    setArchitecture([]);
+    setSymbols([]);
+  }, []);
+
   const loadSymbols = useCallback(
     async (fullName: string, query = "") => {
       const result = await request<SymbolLookupResponse>(
@@ -258,29 +267,37 @@ export default function RepositoriesPage() {
         ? selected
         : connectedResult.repositories[0]?.full_name ?? "";
       setSelected(nextSelected);
+      if (!nextSelected) {
+        clearDetails();
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load repositories");
     } finally {
       setLoading(false);
     }
-  }, [selected]);
+  }, [clearDetails, selected]);
 
   useEffect(() => {
+    // Repository data is intentionally loaded when this route mounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
   useEffect(() => {
     if (!selected) {
-      setStatus(null);
-      setSummary(null);
-      setTree(null);
-      setGraph(null);
-      setArchitecture([]);
-      setSymbols([]);
       return;
     }
+    // Repository intelligence is intentionally refreshed whenever selection changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadDetails(selected);
   }, [loadDetails, selected]);
+
+  function chooseRepository(value: string) {
+    setSelected(value);
+    if (!value) {
+      clearDetails();
+    }
+  }
 
   async function connect(fullName: string) {
     setPending(fullName);
@@ -304,7 +321,7 @@ export default function RepositoriesPage() {
     try {
       await request(`/${fullName}`, { method: "DELETE" });
       if (selected === fullName) {
-        setSelected("");
+        chooseRepository("");
       }
       await load();
     } catch (reason) {
@@ -364,7 +381,7 @@ export default function RepositoriesPage() {
             <span className="text-zinc-300">Repository selector</span>
             <select
               value={selected}
-              onChange={(event) => setSelected(event.target.value)}
+              onChange={(event) => chooseRepository(event.target.value)}
               className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white"
             >
               <option value="">Select a connected repository</option>

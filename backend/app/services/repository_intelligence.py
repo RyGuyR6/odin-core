@@ -939,7 +939,9 @@ class RepositoryIntelligenceService:
         purpose = self._project_purpose(root, full_name)
         language_counts = Counter(entry.language for entry in inventory if entry.language)
         languages = [name for name, _ in language_counts.most_common()]
-        frameworks = sorted(set(metadata.get("detected_frameworks") or self._frameworks_from_files(root, inventory)))
+        frameworks = self._normalize_framework_names(
+            metadata.get("detected_frameworks") or self._frameworks_from_files(root, inventory)
+        )
         package_manager = sorted(set(self._package_managers(inventory, root)))
         build_system = sorted(set(self._build_systems(inventory, root)))
         test_framework = sorted(set(self._test_frameworks(inventory, root)))
@@ -987,6 +989,22 @@ class RepositoryIntelligenceService:
                 if value in dependencies:
                     frameworks.add(label)
         return frameworks
+
+    @staticmethod
+    def _normalize_framework_names(values: list[str] | set[str]) -> list[str]:
+        canonical = {
+            "fastapi": "FastAPI",
+            "next.js": "Next.js",
+            "react": "React",
+            "vue": "Vue",
+            "svelte": "Svelte",
+            "express": "Express",
+            "vitest": "Vitest",
+            "pydantic": "Pydantic",
+            "django": "Django",
+            "flask": "Flask",
+        }
+        return sorted({canonical.get(value.lower(), value) for value in values})
 
     @staticmethod
     def _package_managers(inventory: list[InventoryEntry], root: Path) -> list[str]:
@@ -1045,7 +1063,10 @@ class RepositoryIntelligenceService:
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore")
             for line in text.splitlines():
-                cleaned = line.strip().lstrip("#").strip()
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                cleaned = stripped.lstrip("#").strip()
                 if cleaned and cleaned.lower() != root.name.lower():
                     return cleaned[:240]
         return f"Repository intelligence snapshot for {full_name}."

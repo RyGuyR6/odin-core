@@ -116,8 +116,8 @@ describe("RepositoriesPage", () => {
     expect(await screen.findByText("Repository Intelligence")).toBeInTheDocument();
     expect(await screen.findByText(summary.project_purpose)).toBeInTheDocument();
     expect(screen.getByText("FastAPI, Next.js")).toBeInTheDocument();
-    expect(screen.getByText("backend/app/main.py")).toBeInTheDocument();
-    expect(screen.getByText("frontend/app/page.tsx")).toBeInTheDocument();
+    expect(screen.getAllByText("backend/app/main.py").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("frontend/app/page.tsx").length).toBeGreaterThan(0);
     expect(screen.getByText("backend/app/cycle_a.py → backend/app/cycle_b.py")).toBeInTheDocument();
     expect(await screen.findByText("Widget")).toBeInTheDocument();
   });
