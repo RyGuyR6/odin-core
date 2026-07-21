@@ -97,3 +97,4 @@ webencodings==0.5.1
 websocket-client==1.9.0
 fastapi>=0.115
 mcp[cli]>=1.27,<2
+pwdlib[argon2]>=0.3.0
