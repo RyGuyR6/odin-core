@@ -1,4 +1,4 @@
-"""OW-005: Odin-owned GitHub repository connections and repository intelligence."""
+"""Repository connections and repository intelligence APIs."""
 
 from __future__ import annotations
 

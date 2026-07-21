@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.repositories.config import get_repository_settings
 from app.repositories.indexer import RepositoryIndexer
+from app.repositories.security import safe_child
 
 DB_PATH = Path(
     os.getenv(
@@ -69,6 +70,13 @@ METHOD_RE = re.compile(
 ROUTE_HINT_RE = re.compile(r"(?:router|app)\.(?:get|post|put|patch|delete|options|head)\s*\(")
 FASTAPI_ROUTE_RE = re.compile(r"@(?:router|app)\.(?:get|post|put|patch|delete|options|head)\s*\(")
 ENV_FILE_RE = re.compile(r"(?:^|/)\.env(?:\..+)?$")
+SCRIPT_SYMBOL_PATTERNS = (
+    (INTERFACE_RE, "interface"),
+    (ENUM_RE, "enum"),
+    (FUNCTION_RE, "function"),
+    (ARROW_RE, "function"),
+    (CONST_RE, "constant"),
+)
 
 
 class FileNode(BaseModel):
@@ -379,7 +387,12 @@ class RepositoryIntelligenceService:
     def _validate_local_path(self, local_path: str) -> Path:
         if not local_path:
             raise ValueError("A local repository path is required before scanning.")
-        candidate = Path(local_path).expanduser().resolve()
+        raw_path = Path(local_path).expanduser()
+        if not raw_path.is_absolute():
+            raise ValueError("Repository path must be absolute.")
+        if ".." in raw_path.parts:
+            raise ValueError("Repository path must not contain parent traversal.")
+        candidate = raw_path.resolve()
         if not candidate.exists() or not candidate.is_dir():
             raise ValueError("Repository path does not exist.")
 
@@ -392,9 +405,14 @@ class RepositoryIntelligenceService:
                 for value in configured.split(os.pathsep)
                 if value.strip()
             )
-        if not any(self._is_relative_to(candidate, root) for root in roots):
-            raise ValueError("Repository path is outside the allowed scan roots.")
-        return candidate
+        for root in roots:
+            if not self._is_relative_to(candidate, root):
+                continue
+            relative = candidate.relative_to(root).as_posix()
+            sanitized = safe_child(root, relative)
+            if sanitized == candidate:
+                return sanitized
+        raise ValueError("Repository path is outside the allowed scan roots.")
 
     @staticmethod
     def _is_relative_to(path: Path, root: Path) -> bool:
@@ -735,7 +753,7 @@ class RepositoryIntelligenceService:
                         )
                     )
 
-        for pattern, kind in ((INTERFACE_RE, "interface"), (ENUM_RE, "enum"), (FUNCTION_RE, "function"), (ARROW_RE, "function"), (CONST_RE, "constant")):
+        for pattern, kind in SCRIPT_SYMBOL_PATTERNS:
             for match in pattern.finditer(text):
                 name = match.group("name")
                 if kind == "constant" and not name.isupper():

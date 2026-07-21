@@ -193,6 +193,7 @@ export default function RepositoriesPage() {
     () => connected.find((repository) => repository.full_name === selected) ?? null,
     [connected, selected],
   );
+  const selectedScanStatus = status?.intelligence.status ?? selectedRepository?.scan_status ?? "unknown";
 
   const clearDetails = useCallback(() => {
     setStatus(null);
@@ -423,7 +424,7 @@ export default function RepositoriesPage() {
 
         <div className="mt-4 flex flex-wrap gap-3 text-sm text-zinc-300">
           <span className="rounded-full border border-white/10 px-3 py-1">
-            Status: {detailsLoading ? "loading" : niceStatus(status?.intelligence.status ?? selectedRepository?.scan_status)}
+            Status: {detailsLoading ? "loading" : niceStatus(selectedScanStatus)}
           </span>
           {status?.intelligence.scan_completed_at && (
             <span className="rounded-full border border-white/10 px-3 py-1">
