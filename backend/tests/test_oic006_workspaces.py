@@ -245,3 +245,6 @@ def test_change_task_integration_pauses_at_workspace_approval_step(tmp_path: Pat
     )
     result = orchestrator.execute(task.id)
     assert result.status == TaskStatus.PAUSED
+    resumed = orchestrator.execute(task.id)
+    assert resumed.status == TaskStatus.SUCCEEDED
+    assert resumed.steps[1].result["planned"] is True
