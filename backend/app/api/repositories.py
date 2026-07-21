@@ -178,8 +178,8 @@ def _require_connected(owner: str, name: str) -> sqlite3.Row:
 
 
 
-def _resolve_scan_path(row: sqlite3.Row, requested_local_path: str | None) -> str:
-    local_path = requested_local_path or row["local_path"]
+def _resolve_scan_path(row: sqlite3.Row) -> str:
+    local_path = row["local_path"]
     if not local_path:
         raise HTTPException(
             status_code=409,
@@ -302,7 +302,10 @@ def scan_repository(
 ):
     row = _require_connected(owner, name)
     full_name = f"{owner}/{name}"
-    local_path = _resolve_scan_path(row, request.local_path)
+    if request.local_path:
+        _update_local_path(full_name, request.local_path)
+        row = _require_connected(owner, name)
+    local_path = _resolve_scan_path(row)
     scan = repository_intelligence_service.scan_repository(full_name, local_path)
     if scan.status == "error":
         raise HTTPException(status_code=400, detail=scan.error or "Repository scan failed.")
