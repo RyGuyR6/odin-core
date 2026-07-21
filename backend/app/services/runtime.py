@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from time import perf_counter
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from app.core.logger import logger
 from app.services.container import ServiceContainer, container
@@ -67,6 +67,16 @@ class RuntimeSnapshot:
 class ApplicationRuntime:
     """Coordinates Odin startup, shutdown, readiness, and diagnostics."""
 
+    _TRANSITIONS: dict[RuntimeState, set[RuntimeState]] = {
+        RuntimeState.CREATED: {RuntimeState.STARTING, RuntimeState.STOPPED},
+        RuntimeState.STARTING: {RuntimeState.READY, RuntimeState.DEGRADED, RuntimeState.FAILED},
+        RuntimeState.READY: {RuntimeState.STOPPING},
+        RuntimeState.DEGRADED: {RuntimeState.STOPPING},
+        RuntimeState.STOPPING: {RuntimeState.STOPPED},
+        RuntimeState.STOPPED: {RuntimeState.STARTING},
+        RuntimeState.FAILED: {RuntimeState.STARTING, RuntimeState.STOPPING, RuntimeState.STOPPED},
+    }
+
     def __init__(self, services: ServiceContainer | None = None):
         self.services = services or container
         self._snapshot = RuntimeSnapshot()
@@ -74,17 +84,33 @@ class ApplicationRuntime:
 
     @property
     def state(self) -> RuntimeState:
-        return self._snapshot.state
+        """Return the current runtime lifecycle state."""
+        with self._lock:
+            return self._snapshot.state
 
     @property
     def is_live(self) -> bool:
+        """True when the application should still be considered running."""
         return self.state not in {RuntimeState.STOPPED, RuntimeState.FAILED}
 
     @property
     def is_ready(self) -> bool:
+        """True when runtime is healthy enough to serve requests."""
         if self.state not in {RuntimeState.READY, RuntimeState.DEGRADED}:
             return False
         return not self._required_service_failures()
+
+    def _transition(self, target: RuntimeState) -> None:
+        with self._lock:
+            current = self._snapshot.state
+            if target == current:
+                return
+            allowed = self._TRANSITIONS.get(current, set())
+            if target not in allowed:
+                raise RuntimeError(
+                    f"Invalid runtime transition: {current.value} -> {target.value}"
+                )
+            self._snapshot.state = target
 
     async def _invoke(
         self,
@@ -141,9 +167,9 @@ class ApplicationRuntime:
             if self.state in {RuntimeState.STARTING, RuntimeState.READY, RuntimeState.DEGRADED}:
                 return
             self._snapshot = RuntimeSnapshot(
-                state=RuntimeState.STARTING,
                 started_at=utc_now(),
             )
+        self._transition(RuntimeState.STARTING)
 
         logger.info("Odin application runtime starting")
 
@@ -178,9 +204,9 @@ class ApplicationRuntime:
 
             with self._lock:
                 self._snapshot.ready_at = utc_now()
-                self._snapshot.state = (
-                    RuntimeState.DEGRADED if optional_failures else RuntimeState.READY
-                )
+            self._transition(
+                RuntimeState.DEGRADED if optional_failures else RuntimeState.READY
+            )
 
             logger.info(
                 "Odin application runtime ready (state=%s, optional_failures=%s)",
@@ -189,16 +215,21 @@ class ApplicationRuntime:
             )
         except Exception as exc:
             with self._lock:
-                self._snapshot.state = RuntimeState.FAILED
                 self._snapshot.startup_error = f"{type(exc).__name__}: {exc}"
+            self._transition(RuntimeState.FAILED)
             raise
 
     async def shutdown(self) -> None:
         with self._lock:
             if self.state in {RuntimeState.STOPPING, RuntimeState.STOPPED}:
                 return
-            self._snapshot.state = RuntimeState.STOPPING
+            if self.state is RuntimeState.CREATED:
+                self._snapshot.stopping_at = utc_now()
+                self._snapshot.stopped_at = utc_now()
+                self._snapshot.state = RuntimeState.STOPPED
+                return
             self._snapshot.stopping_at = utc_now()
+        self._transition(RuntimeState.STOPPING)
 
         logger.info("Odin application runtime stopping")
 
@@ -214,8 +245,8 @@ class ApplicationRuntime:
                 self._snapshot.shutdown_error = f"{type(exc).__name__}: {exc}"
         finally:
             with self._lock:
-                self._snapshot.state = RuntimeState.STOPPED
                 self._snapshot.stopped_at = utc_now()
+            self._transition(RuntimeState.STOPPED)
             logger.info("Odin application runtime stopped")
 
     @staticmethod
@@ -257,6 +288,7 @@ class ApplicationRuntime:
         ]
 
     def snapshot(self) -> dict[str, Any]:
+        """Return a normalized runtime snapshot for APIs and diagnostics."""
         with self._lock:
             snapshot = self._snapshot
             started_at = snapshot.started_at

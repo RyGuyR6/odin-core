@@ -118,3 +118,13 @@ def test_required_startup_failure_marks_runtime_failed():
     assert runtime.state is RuntimeState.FAILED
     assert snapshot["ready"] is False
     assert "boom" in snapshot["startup_error"]
+
+
+def test_shutdown_before_startup_transitions_to_stopped():
+    runtime = ApplicationRuntime(ServiceContainer())
+
+    asyncio.run(runtime.shutdown())
+
+    snapshot = runtime.snapshot()
+    assert runtime.state is RuntimeState.STOPPED
+    assert snapshot["stopped_at"] is not None

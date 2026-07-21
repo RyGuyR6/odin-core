@@ -1,0 +1,11 @@
+## v0.1.0
+- Introduced Odin Agent Runtime (OIC-001)
+- Runtime orchestrator
+- Agent registry
+- Planner, Execution, Testing, Review and Deployment lifecycles
+- Runtime dashboard backed by live state
+- Runtime API
+- Approval workflow
+- Thread safety improvements
+- Dashboard polling improvements
+- Runtime test coverage
