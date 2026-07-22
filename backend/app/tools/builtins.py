@@ -19,12 +19,11 @@ from app.services.github.provider import GitHubProvider
 from app.services.repository_intelligence import (
     InventoryEntry,
     RepositoryIntelligenceService,
-    repository_intelligence_service,
 )
 
 from .base import Tool
 from .config import ToolSettings
-from .exceptions import ToolExecutionError, ToolValidationError
+from .exceptions import ToolValidationError
 from .models import ExecutionContext, PermissionLevel, RiskLevel, ToolDefinition
 from .sandbox import WorkspaceSandbox
 
@@ -1016,6 +1015,9 @@ class AliasTool(Tool):
     def __init__(self, definition: ToolDefinition, delegate: Tool):
         self.definition = definition
         self.delegate = delegate
+
+    def tool_definition(self) -> ToolDefinition:
+        return self.definition
 
     async def execute(self, arguments, context):
         return await self.delegate.execute(arguments, context)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
-from .models import ExecutionContext, RiskLevel, ToolDefinition
+from .models import RiskLevel, ToolDefinition
 
 class Tool(ABC):
     """

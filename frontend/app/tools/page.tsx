@@ -147,12 +147,15 @@ export default function ToolsPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const initialLoad = window.setTimeout(() => {
+      void load();
+    }, 0);
     const id = window.setInterval(() => {
       void load();
     }, 15000);
     return () => {
       controllerRef.current?.abort();
+      window.clearTimeout(initialLoad);
       window.clearInterval(id);
     };
   }, [load]);

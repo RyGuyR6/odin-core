@@ -12,11 +12,20 @@ from app.tools.manager import ToolManager, get_tool_manager
 from app.tools.models import ExecutionContext, ToolDefinition, ToolExecutionRequest
 
 
-def build_manager(tmp_path: Path, monkeypatch, *, allow_shell: bool = False) -> ToolManager:
+def build_manager(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    allow_shell: bool = False,
+    approve_shell: bool = True,
+) -> ToolManager:
     monkeypatch.setenv("ODIN_TOOL_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
     monkeypatch.setenv("ODIN_TOOL_DB", str(tmp_path / "tools.db"))
     monkeypatch.setenv("ODIN_TOOL_ALLOW_SHELL", "true" if allow_shell else "false")
     monkeypatch.setenv("ODIN_TOOL_ALLOW_PYTHON", "true")
+    monkeypatch.setenv(
+        "ODIN_TOOL_APPROVE_SHELL", "true" if approve_shell else "false"
+    )
     get_tool_manager.cache_clear()
     return ToolManager()
 
@@ -112,7 +121,12 @@ def test_tool_approval_flow_and_execution_history(tmp_path, monkeypatch):
 
 
 def test_terminal_git_and_retry_execution(tmp_path, monkeypatch):
-    manager = build_manager(tmp_path, monkeypatch, allow_shell=True)
+    manager = build_manager(
+        tmp_path,
+        monkeypatch,
+        allow_shell=True,
+        approve_shell=False,
+    )
     workspace = manager.sandbox.workspace("default")
     subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
     (workspace / "README.md").write_text("odin\n", encoding="utf-8")
@@ -136,6 +150,23 @@ def test_terminal_git_and_retry_execution(tmp_path, monkeypatch):
                 argv=["git", "status", "--short"],
                 stream=True,
             )
+        )
+
+    async def resume(execution):
+        approval = manager.store.get_approval(execution.approval_id)
+        assert approval is not None
+        manager.store.decide_approval(
+            approval.id,
+            approved=True,
+            decided_by="tester",
+            note="approved for test",
+        )
+        return await manager.executor.resume_approved(
+            approval.id,
+            ToolExecutionRequest(
+                tool_name=execution.tool_name,
+                context=tool_request("terminal.execute").context,
+            ),
         )
 
     async def run_git_status():
@@ -167,6 +198,8 @@ def test_terminal_git_and_retry_execution(tmp_path, monkeypatch):
     import asyncio
 
     terminal_execution = asyncio.run(run_terminal())
+    if terminal_execution.status.value == "awaiting_approval":
+        terminal_execution = asyncio.run(resume(terminal_execution))
     git_execution = asyncio.run(run_git_status())
     flaky_execution = asyncio.run(run_flaky())
 

@@ -123,7 +123,7 @@ describe("ToolsPage", () => {
     render(<ToolsPage />);
 
     expect(await screen.findByText("Tool Manager")).toBeInTheDocument();
-    expect(await screen.findByText("terminal.execute")).toBeInTheDocument();
+    expect((await screen.findAllByText("terminal.execute")).length).toBeGreaterThan(0);
     expect(screen.getByText("approval required")).toBeInTheDocument();
     expect(screen.getByText("terminal.execute requires approval")).toBeInTheDocument();
     expect(screen.getByText("Recent executions")).toBeInTheDocument();
