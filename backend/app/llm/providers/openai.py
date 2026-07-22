@@ -97,18 +97,18 @@ class OpenAIProvider(LLMProvider):
         return {}
 
     @staticmethod
-    def _tool_calls_from_response(response: Any) -> list[ToolCall]:
-        output = getattr(response, "output", None) or []
+    def _tool_calls_from_message(message: Any) -> list[ToolCall]:
+        output = getattr(message, "tool_calls", None) or []
         calls: list[ToolCall] = []
         for item in output:
-            if getattr(item, "type", "") != "function_call":
+            if getattr(item, "type", "") != "function":
                 continue
             calls.append(
                 ToolCall(
-                    id=getattr(item, "call_id", "") or getattr(item, "id", ""),
-                    name=getattr(item, "name", ""),
+                    id=getattr(item, "id", ""),
+                    name=getattr(item.function, "name", ""),
                     arguments=OpenAIProvider._parse_arguments(
-                        getattr(item, "arguments", "{}")
+                        getattr(item.function, "arguments", "{}")
                     ),
                 )
             )
@@ -130,26 +130,28 @@ class OpenAIProvider(LLMProvider):
     def _response_kwargs(self, request: ChatRequest, model: str) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": model,
-            "input": self._messages_to_input(request.messages),
+            "messages": self._messages_to_input(request.messages),
         }
         if request.temperature is not None:
             payload["temperature"] = request.temperature
         if request.max_tokens is not None:
-            payload["max_output_tokens"] = request.max_tokens
+            payload["max_tokens"] = request.max_tokens
         if request.tools:
             payload["tools"] = [
                 {
                     "type": "function",
-                    "name": tool.function.name,
-                    "description": tool.function.description,
-                    "parameters": tool.function.parameters,
+                    "function": {
+                        "name": tool.function.name,
+                        "description": tool.function.description,
+                        "parameters": tool.function.parameters,
+                    },
                 }
                 for tool in request.tools
             ]
         if request.tool_choice is not None:
             payload["tool_choice"] = request.tool_choice
         if request.response_format is not None:
-            payload["text"] = {"format": request.response_format}
+            payload["response_format"] = request.response_format
         return payload
 
     @staticmethod
@@ -157,8 +159,12 @@ class OpenAIProvider(LLMProvider):
         usage = getattr(response, "usage", None)
         if usage is None:
             return Usage()
-        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        input_tokens = int(
+            getattr(usage, "prompt_tokens", getattr(usage, "input_tokens", 0)) or 0
+        )
+        output_tokens = int(
+            getattr(usage, "completion_tokens", getattr(usage, "output_tokens", 0)) or 0
+        )
         total = int(getattr(usage, "total_tokens", input_tokens + output_tokens) or 0)
         return Usage(
             prompt_tokens=input_tokens,
@@ -200,19 +206,21 @@ class OpenAIProvider(LLMProvider):
         client = self._client_instance(request.timeout_seconds)
         started = time.perf_counter()
         try:
-            response = await client.responses.create(
+            response = await client.chat.completions.create(
                 **self._response_kwargs(request, model)
             )
         except Exception as exc:
             self._raise_mapped(exc)
         latency = (time.perf_counter() - started) * 1000
-        text = getattr(response, "output_text", "") or ""
+        choice = (getattr(response, "choices", []) or [None])[0]
+        message = getattr(choice, "message", None)
+        text = getattr(message, "content", "") if message else ""
         return LLMResponse(
             provider=self.name,
             model=getattr(response, "model", model) or model,
-            content=text,
-            finish_reason=getattr(response, "status", None),
-            tool_calls=self._tool_calls_from_response(response),
+            content=text or "",
+            finish_reason=getattr(choice, "finish_reason", None),
+            tool_calls=self._tool_calls_from_message(message),
             usage=self._usage_from_response(response),
             latency_ms=latency,
             raw=self._as_dict(response),
@@ -224,26 +232,25 @@ class OpenAIProvider(LLMProvider):
         payload = self._response_kwargs(request, model)
         payload["stream"] = True
         try:
-            stream = await client.responses.create(**payload)
+            stream = await client.chat.completions.create(**payload)
             async for event in stream:
-                event_type = getattr(event, "type", "")
-                if event_type == "response.output_text.delta":
+                choice = (getattr(event, "choices", []) or [None])[0]
+                if choice is None:
+                    continue
+                delta = getattr(choice, "delta", None)
+                text_delta = getattr(delta, "content", "") if delta else ""
+                if text_delta:
                     yield StreamChunk(
                         provider=self.name,
-                        model=model,
-                        delta=getattr(event, "delta", "") or "",
+                        model=getattr(event, "model", model) or model,
+                        delta=text_delta,
                         done=False,
                     )
-                elif event_type == "response.completed":
-                    response = getattr(event, "response", None)
-                    finish = (
-                        getattr(response, "status", "completed")
-                        if response
-                        else "completed"
-                    )
+                finish = getattr(choice, "finish_reason", None)
+                if finish is not None:
                     yield StreamChunk(
                         provider=self.name,
-                        model=getattr(response, "model", model) if response else model,
+                        model=getattr(event, "model", model) or model,
                         delta="",
                         finish_reason=finish,
                         done=True,

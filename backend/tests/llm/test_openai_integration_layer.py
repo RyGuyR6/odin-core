@@ -67,7 +67,7 @@ class _FakeModels:
 
 class _FakeClient:
     def __init__(self):
-        self.responses = _FakeResponses()
+        self.chat = SimpleNamespace(completions=_FakeResponses())
         self.embeddings = _FakeEmbeddings()
         self.models = _FakeModels()
 
@@ -86,20 +86,28 @@ def _settings(**kwargs) -> LLMSettings:
     return LLMSettings(**defaults)
 
 
-def test_provider_chat_uses_responses_and_structured_output():
+def test_provider_chat_uses_structured_output():
     provider = OpenAIProvider(_settings())
     client = _FakeClient()
-    client.responses.response = SimpleNamespace(
+    client.chat.completions.response = SimpleNamespace(
         model="gpt-economy",
-        output_text='{"status":"ok"}',
-        status="completed",
-        usage=SimpleNamespace(input_tokens=12, output_tokens=5, total_tokens=17),
-        output=[
+        usage=SimpleNamespace(prompt_tokens=12, completion_tokens=5, total_tokens=17),
+        choices=[
             SimpleNamespace(
-                type="function_call",
-                call_id="call_1",
-                name="extract_data",
-                arguments='{"id": 1}',
+                finish_reason="stop",
+                message=SimpleNamespace(
+                    content='{"status":"ok"}',
+                    tool_calls=[
+                        SimpleNamespace(
+                            type="function",
+                            id="call_1",
+                            function=SimpleNamespace(
+                                name="extract_data",
+                                arguments='{"id": 1}',
+                            ),
+                        )
+                    ],
+                ),
             )
         ],
         model_dump=lambda: {"output_text": '{"status":"ok"}'},
@@ -123,20 +131,36 @@ def test_provider_chat_uses_responses_and_structured_output():
     assert response.usage.prompt_tokens == 12
     assert response.usage.completion_tokens == 5
     assert response.tool_calls[0].name == "extract_data"
-    assert client.responses.calls[0]["model"] == "gpt-economy"
-    assert client.responses.calls[0]["text"]["format"]["type"] == "json_schema"
-    assert "test-key" not in str(client.responses.calls[0])
+    assert client.chat.completions.calls[0]["model"] == "gpt-economy"
+    assert client.chat.completions.calls[0]["response_format"]["type"] == "json_schema"
+    assert "test-key" not in str(client.chat.completions.calls[0])
 
 
 def test_provider_streaming_response():
     provider = OpenAIProvider(_settings())
     client = _FakeClient()
-    client.responses.events = [
-        SimpleNamespace(type="response.output_text.delta", delta="hello "),
-        SimpleNamespace(type="response.output_text.delta", delta="world"),
+    client.chat.completions.events = [
         SimpleNamespace(
-            type="response.completed",
-            response=SimpleNamespace(model="gpt-primary", status="completed"),
+            model="gpt-primary",
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(content="hello "), finish_reason=None
+                )
+            ],
+        ),
+        SimpleNamespace(
+            model="gpt-primary",
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(content="world"), finish_reason=None
+                )
+            ],
+        ),
+        SimpleNamespace(
+            model="gpt-primary",
+            choices=[
+                SimpleNamespace(delta=SimpleNamespace(content=""), finish_reason="stop")
+            ],
         ),
     ]
     provider._client = client
@@ -152,7 +176,7 @@ def test_provider_streaming_response():
     chunks = asyncio.run(_collect())
     assert [chunk.delta for chunk in chunks[:2]] == ["hello ", "world"]
     assert chunks[-1].done is True
-    assert client.responses.calls[0]["stream"] is True
+    assert client.chat.completions.calls[0]["stream"] is True
 
 
 def test_provider_embeddings():
