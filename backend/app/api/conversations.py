@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.conversations.exceptions import (
@@ -18,6 +21,7 @@ from app.conversations.models import (
     MessageCreate,
     SessionCreate,
 )
+from app.services.chat_service import get_chat_service
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 sessions_router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -176,6 +180,46 @@ async def summarize_conversation(conversation_id: str, request: SummarizeRequest
 async def export_conversation(conversation_id: str):
     try:
         return get_conversation_manager().export_conversation(conversation_id).model_dump()
+    except Exception as exc:
+        _raise_http(exc)
+
+
+class StreamMessageRequest(BaseModel):
+    content: str
+    provider: str | None = None
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+@router.post("/{conversation_id}/stream")
+async def stream_message(conversation_id: str, request: StreamMessageRequest):
+    """Stream an assistant reply for a conversation, persisting both messages."""
+
+    async def events():
+        try:
+            async for chunk in get_chat_service().stream_reply(
+                conversation_id,
+                request.content,
+                provider=request.provider,
+                model=request.model,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+            ):
+                yield f"data: {json.dumps({'delta': chunk.delta, 'done': chunk.done, 'model': chunk.model})}\n\n"
+            yield f"data: {json.dumps({'delta': '', 'done': True})}\n\n"
+        except Exception as exc:
+            yield f"event: error\ndata: {json.dumps({'error': str(exc), 'done': True})}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
+@router.post("/{conversation_id}/auto-title")
+async def auto_title(conversation_id: str):
+    """Generate and persist a short title from the conversation's first message."""
+    try:
+        title = await get_chat_service().auto_title(conversation_id)
+        return {"title": title, "conversation_id": conversation_id}
     except Exception as exc:
         _raise_http(exc)
 
