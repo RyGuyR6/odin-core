@@ -37,6 +37,7 @@ class Tool(ABC):
         return ToolDefinition(
             name=str(getattr(self, "name", "")),
             description=str(getattr(self, "description", "")),
+            category=str(getattr(self, "category", "general")),
             version=str(getattr(self, "version", "1.0.0")),
             risk=RiskLevel.low,
             requires_approval=False,
@@ -45,8 +46,10 @@ class Tool(ABC):
 
     def metadata(self) -> dict[str, Any]:
         data = self.tool_definition().model_dump(mode="json")
-        data["category"] = getattr(self, "category", "general")
         return data
+
+    def health(self) -> dict[str, Any]:
+        return {"status": "healthy"}
 
     @abstractmethod
     def execute(self, *args: Any, **kwargs: Any) -> Any:

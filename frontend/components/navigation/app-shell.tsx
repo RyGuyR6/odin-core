@@ -11,6 +11,7 @@ import {
   Menu,
   MessageSquare,
   Settings,
+  Wrench,
   X,
 } from "lucide-react";
 import { BackendStatus } from "@/components/status/backend-status";
@@ -19,6 +20,7 @@ const navigation = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/tasks", label: "Tasks", icon: Bot },
+  { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/repositories", label: "Repositories", icon: FolderGit2 },
   { href: "/activity", label: "Activity", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },

@@ -2,9 +2,16 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 from time import perf_counter
+from typing import Any
 from uuid import uuid4
 from .config import ToolSettings
-from .exceptions import ToolApprovalRequired, ToolCancelledError, ToolExecutionError, ToolTimeoutError, ToolValidationError
+from .exceptions import (
+    ToolCancelledError,
+    ToolExecutionError,
+    ToolPermissionError,
+    ToolTimeoutError,
+    ToolValidationError,
+)
 from .models import (
     ApprovalRequest, ApprovalStatus, ExecutionStatus, ToolExecutionRecord,
     ToolExecutionRequest,
@@ -17,6 +24,32 @@ class ToolExecutor:
     def __init__(self,registry:ToolRegistry,store:ToolStore,policy:PolicyEngine,settings:ToolSettings):
         self.registry=registry; self.store=store; self.policy=policy; self.settings=settings
         self._tasks:dict[str,asyncio.Task]={}
+
+    def _context_with_hooks(self, request: ToolExecutionRequest, execution_id: str):
+        context = request.context.model_copy(deep=True)
+        metadata = dict(context.metadata)
+        metadata["execution_id"] = execution_id
+        metadata["_progress_callback"] = (
+            lambda event_type, payload: self.store.audit(event_type, payload, execution_id)
+        )
+        context.metadata = metadata
+        return context
+
+    async def _run_tool(self, tool, request: ToolExecutionRequest, execution_id: str) -> Any:
+        context = self._context_with_hooks(request, execution_id)
+        return await tool.execute(request.arguments, context)
+
+    @staticmethod
+    def _retryable(exc: Exception) -> bool:
+        return not isinstance(
+            exc,
+            (
+                ToolValidationError,
+                ToolPermissionError,
+                ToolCancelledError,
+                asyncio.CancelledError,
+            ),
+        )
 
     async def execute(self,request:ToolExecutionRequest) -> ToolExecutionRecord:
         if request.idempotency_key:
@@ -61,27 +94,41 @@ class ToolExecutor:
         timeout=min(timeout,self.settings.max_timeout_seconds)
         started=utcnow(); started_perf=perf_counter()
         self.store.update_execution(execution_id,status=ExecutionStatus.running,started_at=started)
-        task=asyncio.create_task(tool.execute(request.arguments,request.context))
-        self._tasks[execution_id]=task
-        try:
-            result=await asyncio.wait_for(task,timeout=timeout)
-            elapsed=round((perf_counter()-started_perf)*1000,2)
-            self.store.update_execution(execution_id,status=ExecutionStatus.succeeded,result=result,finished_at=utcnow(),elapsed_ms=elapsed)
-            self.store.audit("execution.succeeded",{"elapsed_ms":elapsed},execution_id)
-        except asyncio.TimeoutError:
-            task.cancel()
-            elapsed=round((perf_counter()-started_perf)*1000,2)
-            self.store.update_execution(execution_id,status=ExecutionStatus.timed_out,error=f"Timed out after {timeout}s",finished_at=utcnow(),elapsed_ms=elapsed)
-            self.store.audit("execution.timed_out",{"timeout_seconds":timeout},execution_id)
-        except asyncio.CancelledError:
-            self.store.update_execution(execution_id,status=ExecutionStatus.cancelled,error="Execution cancelled",finished_at=utcnow())
-            self.store.audit("execution.cancelled",{},execution_id)
-        except Exception as exc:
-            elapsed=round((perf_counter()-started_perf)*1000,2)
-            self.store.update_execution(execution_id,status=ExecutionStatus.failed,error=f"{type(exc).__name__}: {exc}",finished_at=utcnow(),elapsed_ms=elapsed)
-            self.store.audit("execution.failed",{"error":str(exc)},execution_id)
-        finally:
-            self._tasks.pop(execution_id,None)
+        attempts=max(1,definition.max_retries+1)
+        error: str | None = None
+        for attempt in range(1, attempts + 1):
+            task=asyncio.create_task(self._run_tool(tool,request,execution_id))
+            self._tasks[execution_id]=task
+            self.store.audit("execution.attempt_started",{"attempt":attempt},execution_id)
+            try:
+                result=await asyncio.wait_for(task,timeout=timeout)
+                elapsed=round((perf_counter()-started_perf)*1000,2)
+                self.store.update_execution(execution_id,status=ExecutionStatus.succeeded,result=result,finished_at=utcnow(),elapsed_ms=elapsed,error=None)
+                self.store.audit("execution.succeeded",{"elapsed_ms":elapsed,"attempt":attempt},execution_id)
+                break
+            except asyncio.TimeoutError:
+                task.cancel()
+                error=f"Timed out after {timeout}s"
+                if attempt <= definition.max_retries:
+                    self.store.audit("execution.retrying",{"attempt":attempt,"reason":"timeout"},execution_id)
+                    continue
+                elapsed=round((perf_counter()-started_perf)*1000,2)
+                self.store.update_execution(execution_id,status=ExecutionStatus.timed_out,error=error,finished_at=utcnow(),elapsed_ms=elapsed)
+                self.store.audit("execution.timed_out",{"timeout_seconds":timeout,"attempt":attempt},execution_id)
+            except asyncio.CancelledError:
+                self.store.update_execution(execution_id,status=ExecutionStatus.cancelled,error="Execution cancelled",finished_at=utcnow())
+                self.store.audit("execution.cancelled",{},execution_id)
+            except Exception as exc:
+                error=f"{type(exc).__name__}: {exc}"
+                if attempt <= definition.max_retries and self._retryable(exc):
+                    self.store.audit("execution.retrying",{"attempt":attempt,"error":error},execution_id)
+                    continue
+                elapsed=round((perf_counter()-started_perf)*1000,2)
+                self.store.update_execution(execution_id,status=ExecutionStatus.failed,error=error,finished_at=utcnow(),elapsed_ms=elapsed)
+                self.store.audit("execution.failed",{"error":str(exc),"attempt":attempt},execution_id)
+            finally:
+                self._tasks.pop(execution_id,None)
+            break
         result_record=self.store.get_execution(execution_id)
         assert result_record
         return result_record
@@ -98,7 +145,8 @@ class ToolExecutor:
         self.store.update_execution(original.id,status=ExecutionStatus.running,started_at=started,error=None)
         definition=tool.tool_definition()
         timeout=min(request.timeout_seconds or definition.timeout_seconds or self.settings.default_timeout_seconds,self.settings.max_timeout_seconds)
-        task=asyncio.create_task(tool.execute(original.arguments,request.context)); self._tasks[original.id]=task
+        resumed_request = request.model_copy(update={"arguments": original.arguments})
+        task=asyncio.create_task(self._run_tool(tool,resumed_request,original.id)); self._tasks[original.id]=task
         try:
             value=await asyncio.wait_for(task,timeout=timeout)
             elapsed=round((perf_counter()-started_perf)*1000,2)

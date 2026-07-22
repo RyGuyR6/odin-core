@@ -3,8 +3,20 @@ from fastapi import APIRouter, HTTPException, Query
 from app.tools.exceptions import ToolError, ToolNotFoundError, ToolPermissionError, ToolValidationError
 from app.tools.manager import get_tool_manager
 from app.tools.models import (
-    ApprovalDecision, ExecutionContext, ExecutionListResponse, ExecutionStatus,
-    TelemetryResponse, ToolExecutionRequest, ToolListResponse,
+    ApprovalDecision,
+    ApprovalListResponse,
+    ApprovalStatus,
+    ExecutionContext,
+    ExecutionListResponse,
+    ExecutionStatus,
+    PermissionQueryResponse,
+    PermissionSummary,
+    TelemetryResponse,
+    ToolExecutionRequest,
+    ToolHealthRecord,
+    ToolHealthResponse,
+    ToolListResponse,
+    ToolMetadataResponse,
 )
 
 router=APIRouter(prefix="/tools",tags=["Tools"])
@@ -16,6 +28,11 @@ def manager():
 def list_tools():
     tools=[tool.tool_definition() for tool in manager().registry.all()]
     return ToolListResponse(tools=tools,count=len(tools))
+
+@router.get("/catalog/{tool_name}", response_model=ToolMetadataResponse)
+def get_tool_metadata(tool_name: str):
+    tool = manager().registry.get(tool_name)
+    return ToolMetadataResponse(tool=tool.tool_definition())
 
 @router.get("/telemetry",response_model=TelemetryResponse)
 def telemetry():
@@ -43,6 +60,13 @@ def get_execution(execution_id:str):
     if not record: raise HTTPException(404,"Execution not found")
     return record
 
+@router.get("/executions/{execution_id}/events")
+def get_execution_events(
+    execution_id: str,
+    limit: int = Query(100, ge=1, le=1000),
+):
+    return {"events": manager().store.execution_events(execution_id, limit)}
+
 @router.post("/execute")
 async def execute(request:ToolExecutionRequest):
     try: return await manager().executor.execute(request)
@@ -63,6 +87,14 @@ def get_approval(approval_id:str):
     if not approval: raise HTTPException(404,"Approval not found")
     return approval
 
+@router.get("/approvals", response_model=ApprovalListResponse)
+def list_approvals(
+    limit: int = Query(100, ge=1, le=500),
+    status: ApprovalStatus | None = None,
+):
+    approvals = manager().store.list_approvals(limit, status.value if status else None)
+    return ApprovalListResponse(approvals=approvals, count=len(approvals))
+
 @router.post("/approvals/{approval_id}/decision")
 def decide_approval(approval_id:str,decision:ApprovalDecision):
     approval=manager().store.get_approval(approval_id)
@@ -79,6 +111,46 @@ async def execute_approved(approval_id:str,context:ExecutionContext):
 @router.get("/audit")
 def audit(limit:int=Query(100,ge=1,le=1000)):
     return {"events":manager().store.audit_events(limit)}
+
+@router.get("/permissions", response_model=PermissionQueryResponse)
+def permissions():
+    m = manager()
+    permissions = [
+        PermissionSummary(
+            tool_name=definition.name,
+            category=definition.category,
+            permission_level=definition.permission_level,
+            required_permissions=definition.required_permissions,
+            risk=definition.risk,
+            requires_approval=definition.requires_approval,
+        )
+        for definition in (tool.tool_definition() for tool in m.registry.all())
+    ]
+    return PermissionQueryResponse(
+        shell_enabled=m.settings.allow_shell,
+        python_enabled=m.settings.allow_python,
+        require_approval_for_writes=m.settings.require_approval_for_writes,
+        require_approval_for_shell=m.settings.require_approval_for_shell,
+        permissions=permissions,
+    )
+
+@router.get("/health", response_model=ToolHealthResponse)
+def tool_health():
+    rows = []
+    for tool in manager().registry.all():
+        definition = tool.tool_definition()
+        health = tool.health()
+        rows.append(
+            ToolHealthRecord(
+                tool_name=definition.name,
+                category=definition.category,
+                version=definition.version,
+                status=str(health.get("status", "unknown")),
+                detail=health.get("detail"),
+                capability_metadata=definition.capability_metadata,
+            )
+        )
+    return ToolHealthResponse(tools=rows, count=len(rows))
 
 # Legacy route retained for existing clients.
 @router.post("/{tool_name}")

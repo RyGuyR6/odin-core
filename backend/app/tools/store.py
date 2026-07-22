@@ -107,19 +107,35 @@ class ToolStore:
 
     def get_execution(self, execution_id: str) -> ToolExecutionRecord | None:
         with self._connect() as con:
-            row = con.execute("SELECT * FROM tool_executions WHERE id=?", (execution_id,)).fetchone()
+            row = con.execute("""
+            SELECT e.*, a.status AS approval_status
+            FROM tool_executions e
+            LEFT JOIN tool_approvals a ON a.id = e.approval_id
+            WHERE e.id=?
+            """, (execution_id,)).fetchone()
         return self._execution_from_row(row) if row else None
 
     def get_by_idempotency(self, key: str) -> ToolExecutionRecord | None:
         with self._connect() as con:
-            row = con.execute("SELECT * FROM tool_executions WHERE idempotency_key=?", (key,)).fetchone()
+            row = con.execute("""
+            SELECT e.*, a.status AS approval_status
+            FROM tool_executions e
+            LEFT JOIN tool_approvals a ON a.id = e.approval_id
+            WHERE e.idempotency_key=?
+            """, (key,)).fetchone()
         return self._execution_from_row(row) if row else None
 
     def list_executions(self, limit=100, status: str | None=None, tool_name: str | None=None):
-        sql = "SELECT * FROM tool_executions WHERE 1=1"; args=[]
+        sql = """
+        SELECT e.*, a.status AS approval_status
+        FROM tool_executions e
+        LEFT JOIN tool_approvals a ON a.id = e.approval_id
+        WHERE 1=1
+        """
+        args=[]
         if status: sql += " AND status=?"; args.append(status)
         if tool_name: sql += " AND tool_name=?"; args.append(tool_name)
-        sql += " ORDER BY created_at DESC LIMIT ?"; args.append(limit)
+        sql += " ORDER BY e.created_at DESC LIMIT ?"; args.append(limit)
         with self._connect() as con:
             rows=con.execute(sql,args).fetchall()
         return [self._execution_from_row(r) for r in rows]
@@ -147,7 +163,35 @@ class ToolStore:
             created_at=datetime.fromisoformat(row["created_at"]),
             decided_at=datetime.fromisoformat(row["decided_at"]) if row["decided_at"] else None,
             decided_by=row["decided_by"],
+            note=row["note"],
         )
+
+    def list_approvals(self, limit=100, status: str | None = None):
+        sql = "SELECT * FROM tool_approvals WHERE 1=1"
+        args: list[Any] = []
+        if status:
+            sql += " AND status=?"
+            args.append(status)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        with self._connect() as con:
+            rows = con.execute(sql, args).fetchall()
+        return [
+            ApprovalRequest(
+                id=row["id"],
+                execution_id=row["execution_id"],
+                tool_name=row["tool_name"],
+                actor_id=row["actor_id"],
+                reason=row["reason"],
+                status=ApprovalStatus(row["status"]),
+                expires_at=datetime.fromisoformat(row["expires_at"]),
+                created_at=datetime.fromisoformat(row["created_at"]),
+                decided_at=datetime.fromisoformat(row["decided_at"]) if row["decided_at"] else None,
+                decided_by=row["decided_by"],
+                note=row["note"],
+            )
+            for row in rows
+        ]
 
     def decide_approval(self, approval_id: str, approved: bool, decided_by: str, note: str | None):
         status = ApprovalStatus.approved if approved else ApprovalStatus.denied
@@ -168,6 +212,19 @@ class ToolStore:
             rows=con.execute("SELECT * FROM tool_audit_events ORDER BY id DESC LIMIT ?",(limit,)).fetchall()
         return [dict(r) | {"payload": json.loads(r["payload_json"])} for r in rows]
 
+    def execution_events(self, execution_id: str, limit=100):
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT * FROM tool_audit_events
+                WHERE execution_id=?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (execution_id, limit),
+            ).fetchall()
+        return [dict(r) | {"payload": json.loads(r["payload_json"])} for r in rows]
+
     def telemetry(self):
         with self._connect() as con:
             rows=con.execute("SELECT status,COUNT(*) n FROM tool_executions GROUP BY status").fetchall()
@@ -184,5 +241,6 @@ class ToolStore:
             workspace_id=row["workspace_id"],approval_id=row["approval_id"],
             started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
             finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
-            elapsed_ms=row["elapsed_ms"],created_at=datetime.fromisoformat(row["created_at"])
+            elapsed_ms=row["elapsed_ms"],created_at=datetime.fromisoformat(row["created_at"]),
+            approval_status=ApprovalStatus(row["approval_status"]) if row["approval_status"] else None,
         )
