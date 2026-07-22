@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   Activity,
   Bot,
+  Brain,
   FolderGit2,
   LayoutDashboard,
   Menu,
@@ -22,6 +23,7 @@ const navigation = [
   { href: "/tasks", label: "Tasks", icon: Bot },
   { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/repositories", label: "Repositories", icon: FolderGit2 },
+  { href: "/memory", label: "Memory", icon: Brain },
   { href: "/activity", label: "Activity", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -70,8 +72,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
         <NavLinks />
         <div className="mt-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
-          <p className="font-medium text-white">OW-007</p>
-          <p className="mt-1">Native AI Chat</p>
+          <p className="font-medium text-white">OIC-011</p>
+          <p className="mt-1">Memory & Knowledge Engine</p>
         </div>
       </aside>
 

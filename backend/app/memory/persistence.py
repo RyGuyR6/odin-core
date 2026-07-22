@@ -23,14 +23,19 @@ class MemoryStore:
             db.executescript('''
             CREATE TABLE IF NOT EXISTS memories (
               id TEXT PRIMARY KEY, title TEXT, content TEXT NOT NULL, kind TEXT NOT NULL, scope TEXT NOT NULL,
-              project_id TEXT, conversation_id TEXT, source TEXT, tags_json TEXT NOT NULL DEFAULT '[]',
+              project_id TEXT, repository_id TEXT, conversation_id TEXT, source TEXT,
+              tags_json TEXT NOT NULL DEFAULT '[]',
               metadata_json TEXT NOT NULL DEFAULT '{}', content_hash TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+              importance REAL NOT NULL DEFAULT 0.5, confidence REAL NOT NULL DEFAULT 1.0,
+              access_count INTEGER NOT NULL DEFAULT 0, accessed_at TEXT,
               created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_hash_scope_project ON memories(content_hash, scope, COALESCE(project_id,''));
             CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_id);
+            CREATE INDEX IF NOT EXISTS idx_memories_repository ON memories(repository_id);
             CREATE INDEX IF NOT EXISTS idx_memories_conversation ON memories(conversation_id);
             CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind);
+            CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC);
             CREATE TABLE IF NOT EXISTS memory_chunks (
               id TEXT PRIMARY KEY, memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
               ordinal INTEGER NOT NULL, content TEXT NOT NULL, token_count INTEGER NOT NULL,
@@ -53,10 +58,31 @@ class MemoryStore:
               key TEXT PRIMARY KEY, value REAL NOT NULL DEFAULT 0
             );
             ''')
+            # Apply additive migrations for existing databases
+            self._migrate(db)
             try:
                 db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(chunk_id UNINDEXED, memory_id UNINDEXED, title, content, tags)")
             except sqlite3.OperationalError:
                 pass
+    def _migrate(self, db: sqlite3.Connection) -> None:
+        """Apply additive schema migrations for previously created databases."""
+        cols = {row[1] for row in db.execute("PRAGMA table_info(memories)")}
+        additions = [
+            ("repository_id", "TEXT"),
+            ("importance", "REAL NOT NULL DEFAULT 0.5"),
+            ("confidence", "REAL NOT NULL DEFAULT 1.0"),
+            ("access_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("accessed_at", "TEXT"),
+        ]
+        for col, col_def in additions:
+            if col not in cols:
+                db.execute(f"ALTER TABLE memories ADD COLUMN {col} {col_def}")
+        # Ensure new indexes exist
+        try:
+            db.execute("CREATE INDEX IF NOT EXISTS idx_memories_repository ON memories(repository_id)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC)")
+        except sqlite3.OperationalError:
+            pass
     def metric_inc(self, key: str, value: float = 1.0):
         with self.connect() as db:
             db.execute("INSERT INTO memory_metrics(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=value+excluded.value", (key,value))

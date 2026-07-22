@@ -4,7 +4,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 MemoryScope = Literal["conversation", "project", "global"]
-MemoryKind = Literal["note", "document", "code", "conversation", "decision", "fact", "summary"]
+MemoryKind = Literal[
+    "note", "document", "code", "conversation", "decision", "fact", "summary",
+    # Engineering-specific kinds added by OIC-011
+    "architecture_decision", "repository_discovery", "milestone_history",
+    "bug_investigation", "fix_resolution", "user_preference", "engineering_note",
+    "coding_pattern", "documentation_insight", "test_strategy", "project_history",
+    "ai_reasoning",
+]
 SearchMode = Literal["semantic", "keyword", "hybrid"]
 
 class MemoryCreate(BaseModel):
@@ -13,10 +20,13 @@ class MemoryCreate(BaseModel):
     kind: MemoryKind = "note"
     scope: MemoryScope = "global"
     project_id: str | None = None
+    repository_id: str | None = None
     conversation_id: str | None = None
     source: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     deduplicate: bool = True
 
 class MemoryUpdate(BaseModel):
@@ -24,8 +34,11 @@ class MemoryUpdate(BaseModel):
     title: str | None = None
     scope: MemoryScope | None = None
     project_id: str | None = None
+    repository_id: str | None = None
     tags: list[str] | None = None
     metadata: dict[str, Any] | None = None
+    importance: float | None = Field(default=None, ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 class MemoryRecord(BaseModel):
     id: str
@@ -34,12 +47,17 @@ class MemoryRecord(BaseModel):
     kind: MemoryKind
     scope: MemoryScope
     project_id: str | None
+    repository_id: str | None = None
     conversation_id: str | None
     source: str | None
     tags: list[str]
     metadata: dict[str, Any]
     content_hash: str
     version: int
+    importance: float = 0.5
+    confidence: float = 1.0
+    access_count: int = 0
+    accessed_at: datetime | None = None
     chunk_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -60,6 +78,7 @@ class MemorySearchRequest(BaseModel):
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)
     scope: MemoryScope | None = None
     project_id: str | None = None
+    repository_id: str | None = None
     conversation_id: str | None = None
     kinds: list[MemoryKind] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
@@ -72,11 +91,13 @@ class SearchResult(BaseModel):
     kind: MemoryKind
     scope: MemoryScope
     project_id: str | None
+    repository_id: str | None = None
     source: str | None
     tags: list[str]
     score: float
     semantic_score: float
     keyword_score: float
+    importance: float
     metadata: dict[str, Any]
 
 class IngestTextRequest(BaseModel):
@@ -85,10 +106,12 @@ class IngestTextRequest(BaseModel):
     kind: MemoryKind = "document"
     scope: MemoryScope = "global"
     project_id: str | None = None
+    repository_id: str | None = None
     conversation_id: str | None = None
     source: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    importance: float = Field(default=0.5, ge=0.0, le=1.0)
 
 class ReindexRequest(BaseModel):
     memory_ids: list[str] = Field(default_factory=list)
@@ -126,6 +149,8 @@ class MemoryTelemetry(BaseModel):
     cache_misses: int
     average_search_ms: float
     database_bytes: int
+    by_kind: dict[str, int] = Field(default_factory=dict)
+    by_scope: dict[str, int] = Field(default_factory=dict)
 
 class ConversationMemoryRequest(BaseModel):
     conversation_id: str

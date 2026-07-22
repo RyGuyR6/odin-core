@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import logging
 import re
 from typing import Any
 
 from app.planning.models import ExecutionPlan
 from app.services.repository_context import repository_context_service
 from app.services.repository_intelligence import RepositoryScanRecord, repository_intelligence_service
+
+log = logging.getLogger(__name__)
 
 STOPWORDS = {
     "a",
@@ -37,6 +40,35 @@ class Planner:
         plan.metadata = self._build_metadata(plan.goal, repository)
         return plan
 
+    def _retrieve_memory_context(self, goal: str, repository: str | None) -> list[dict[str, Any]]:
+        """Retrieve relevant memories to enrich the plan."""
+        try:
+            from app.memory import MemoryManager, MemorySearchRequest
+            manager = MemoryManager()
+            request = MemorySearchRequest(
+                query=goal,
+                mode="hybrid",
+                limit=8,
+                min_score=0.1,
+            )
+            results = manager.search(request)
+            return [
+                {
+                    "memory_id": r.memory_id,
+                    "title": r.title,
+                    "content": r.content[:500],
+                    "kind": r.kind,
+                    "score": r.score,
+                    "importance": r.importance,
+                    "tags": r.tags,
+                    "source": r.source,
+                }
+                for r in results
+            ]
+        except Exception:
+            log.debug("Memory retrieval skipped during planning", exc_info=True)
+            return []
+
     def _build_metadata(
         self,
         goal: str,
@@ -53,7 +85,12 @@ class Planner:
             "repository": None,
             "repository_context": None,
             "repository_summary": None,
+            "memory_context": [],
         }
+
+        # Retrieve relevant memories for this goal (best-effort)
+        metadata["memory_context"] = self._retrieve_memory_context(goal, repository)
+
         if not repository:
             return metadata
 
@@ -68,6 +105,8 @@ class Planner:
         candidates = self._candidate_files(scan, terms)
         context_package = repository_context_service.get_context(repository, goal)
         metadata["phases"] = self._phase_sequence(terms, scan, candidates)
+        if metadata["memory_context"]:
+            metadata["phases"] = ["retrieve_memory_context"] + metadata["phases"]
         metadata["candidate_files"] = (
             [
                 {
