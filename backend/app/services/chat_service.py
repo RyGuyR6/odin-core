@@ -4,8 +4,9 @@ from collections.abc import AsyncIterator
 
 from app.conversations.manager import ConversationManager, get_conversation_manager
 from app.conversations.models import MessageCreate, ConversationCreate
-from app.llm.models import ChatRequest, StreamChunk
+from app.llm.models import ChatMessage, ChatRequest, StreamChunk
 from app.llm.service import LLMService, get_llm_service
+from app.services.repository_context import repository_context_service
 
 # Maximum characters from the first user message used to build an auto-title prompt.
 _AUTO_TITLE_MESSAGE_MAX_LENGTH = 500
@@ -30,7 +31,9 @@ class ChatService:
     # Conversation helpers
     # ------------------------------------------------------------------
 
-    def create_conversation(self, title: str | None = None, user_id: str | None = None) -> dict:
+    def create_conversation(
+        self, title: str | None = None, user_id: str | None = None
+    ) -> dict:
         record = self._conversations.create_conversation(
             ConversationCreate(title=title, user_id=user_id)
         )
@@ -45,6 +48,7 @@ class ChatService:
         conversation_id: str,
         content: str,
         *,
+        repository: str | None = None,
         provider: str | None = None,
         model: str | None = None,
         temperature: float | None = None,
@@ -71,10 +75,11 @@ class ChatService:
             messages,
             limit=self._conversations.settings.default_context_messages,
         )
+        repository_messages = await self._repository_messages(repository, content)
 
         response = await self._llm.chat(
             ChatRequest(
-                messages=context,
+                messages=[*repository_messages, *context],
                 provider=provider,
                 model=model,
                 temperature=temperature,
@@ -103,6 +108,7 @@ class ChatService:
         conversation_id: str,
         content: str,
         *,
+        repository: str | None = None,
         provider: str | None = None,
         model: str | None = None,
         temperature: float | None = None,
@@ -136,9 +142,10 @@ class ChatService:
             messages,
             limit=self._conversations.settings.default_context_messages,
         )
+        repository_messages = await self._repository_messages(repository, content)
 
         chat_request = ChatRequest(
-            messages=context,
+            messages=[*repository_messages, *context],
             provider=provider,
             model=model,
             temperature=temperature,
@@ -158,6 +165,17 @@ class ChatService:
                     conversation_id,
                     MessageCreate(role="assistant", content=accumulated),
                 )
+
+    async def _repository_messages(
+        self,
+        repository: str | None,
+        objective: str,
+    ) -> list[ChatMessage]:
+        if not repository:
+            return []
+        package = await repository_context_service.aget_context(repository, objective)
+        rendered = repository_context_service.render(package)
+        return [ChatMessage(role="system", content=f"Repository context:\n{rendered}")]
 
     # ------------------------------------------------------------------
     # Auto-title

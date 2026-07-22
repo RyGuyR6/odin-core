@@ -13,6 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from app.auth import Principal, UserRole, get_current_principal, require_roles
+from app.services.repository_context import repository_context_service
+from app.services.repository_graph import repository_graph_service
 from app.services.repository_intelligence import repository_intelligence_service
 
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
@@ -56,9 +58,16 @@ class SymbolLookupResponse(BaseModel):
     symbols: list[dict[str, Any]]
 
 
+class RepositorySearchResponse(BaseModel):
+    count: int
+    results: list[dict[str, Any]]
+    stale: bool = False
+    indexed_revision: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
 def _ensure_connected_schema(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        """
+    connection.execute("""
         CREATE TABLE IF NOT EXISTS connected_repositories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             github_id INTEGER NOT NULL UNIQUE,
@@ -74,16 +83,18 @@ def _ensure_connected_schema(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL,
             local_path TEXT
         )
-        """
-    )
+        """)
     columns = {
         row["name"]
-        for row in connection.execute("PRAGMA table_info(connected_repositories)").fetchall()
+        for row in connection.execute(
+            "PRAGMA table_info(connected_repositories)"
+        ).fetchall()
     }
     if "local_path" not in columns:
-        connection.execute("ALTER TABLE connected_repositories ADD COLUMN local_path TEXT")
+        connection.execute(
+            "ALTER TABLE connected_repositories ADD COLUMN local_path TEXT"
+        )
     connection.commit()
-
 
 
 def _connect() -> sqlite3.Connection:
@@ -94,7 +105,6 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
-
 def _token() -> str:
     token = os.getenv("ODIN_GITHUB_TOKEN", "").strip()
     if not token:
@@ -103,7 +113,6 @@ def _token() -> str:
             detail="ODIN_GITHUB_TOKEN is not configured on odin-api.",
         )
     return token
-
 
 
 def _headers() -> dict[str, str]:
@@ -141,7 +150,6 @@ async def _github_get(path: str, params: dict[str, Any] | None = None) -> Any:
     return response.json()
 
 
-
 def _serialize(row: sqlite3.Row) -> dict[str, Any]:
     scan = repository_intelligence_service.get_scan(row["full_name"])
     return {
@@ -164,7 +172,6 @@ def _serialize(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-
 def _require_connected(owner: str, name: str) -> sqlite3.Row:
     full_name = f"{owner}/{name}"
     with _connect() as connection:
@@ -177,7 +184,6 @@ def _require_connected(owner: str, name: str) -> sqlite3.Row:
     return row
 
 
-
 def _resolve_scan_path(row: sqlite3.Row) -> str:
     local_path = row["local_path"]
     if not local_path:
@@ -186,7 +192,6 @@ def _resolve_scan_path(row: sqlite3.Row) -> str:
             detail="Repository scan requires a local_path under an allowed scan root.",
         )
     return str(local_path)
-
 
 
 def _update_local_path(full_name: str, local_path: str) -> None:
@@ -320,9 +325,55 @@ def scan_repository(
     local_path = _resolve_scan_path(row)
     scan = repository_intelligence_service.scan_repository(full_name, local_path)
     if scan.status == "error":
-        raise HTTPException(status_code=400, detail=scan.error or "Repository scan failed.")
+        raise HTTPException(
+            status_code=400, detail=scan.error or "Repository scan failed."
+        )
     _update_local_path(full_name, local_path)
     return scan.model_dump(mode="json")
+
+
+@router.post("/{owner}/{name}/index", status_code=202)
+def start_repository_index(
+    owner: str,
+    name: str,
+    request: RepositoryScanRequest,
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
+    row = _require_connected(owner, name)
+    full_name = f"{owner}/{name}"
+    if request.local_path:
+        validated_local_path = _validated_local_path(request.local_path)
+        assert validated_local_path is not None
+        _update_local_path(full_name, validated_local_path)
+        row = _require_connected(owner, name)
+    local_path = _resolve_scan_path(row)
+    scan = repository_intelligence_service.start_indexing(full_name, local_path)
+    _update_local_path(full_name, local_path)
+    return scan.model_dump(mode="json")
+
+
+@router.post("/{owner}/{name}/cancel-indexing")
+def cancel_repository_index(
+    owner: str,
+    name: str,
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
+    try:
+        return repository_intelligence_service.cancel_indexing(
+            f"{owner}/{name}"
+        ).model_dump(mode="json")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/{owner}/{name}/reindex")
+def reindex_repository(
+    owner: str,
+    name: str,
+    request: RepositoryScanRequest,
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
+    return start_repository_index(owner, name, request, _)
 
 
 @router.delete("/{owner}/{name}", status_code=204)
@@ -377,15 +428,28 @@ async def repository_status(
                 "updated_at": intelligence.updated_at,
                 "error": intelligence.error,
                 "local_path": intelligence.local_path,
+                "indexed_revision": (
+                    intelligence.payload.indexed_revision
+                    if intelligence.payload is not None
+                    else None
+                ),
                 "summary": (
                     intelligence.payload.summary.model_dump(mode="json")
                     if intelligence.payload is not None
                     else None
                 ),
                 "architecture": (
-                    [item.model_dump(mode="json") for item in intelligence.payload.architecture]
+                    [
+                        item.model_dump(mode="json")
+                        for item in intelligence.payload.architecture
+                    ]
                     if intelligence.payload is not None
                     else []
+                ),
+                "metadata": (
+                    intelligence.payload.metadata
+                    if intelligence.payload is not None
+                    else {}
                 ),
             }
             if intelligence is not None
@@ -396,8 +460,10 @@ async def repository_status(
                 "updated_at": None,
                 "error": None,
                 "local_path": row["local_path"],
+                "indexed_revision": None,
                 "summary": None,
                 "architecture": [],
+                "metadata": {},
             }
         ),
     }
@@ -412,7 +478,10 @@ def repository_summary(
     _require_connected(owner, name)
     record = repository_intelligence_service.get_scan(f"{owner}/{name}")
     if record is None or record.payload is None or record.status != "ready":
-        raise HTTPException(status_code=404, detail="Repository summary is not available. Scan the repository first.")
+        raise HTTPException(
+            status_code=404,
+            detail="Repository summary is not available. Scan the repository first.",
+        )
     return record.payload.summary.model_dump(mode="json")
 
 
@@ -425,7 +494,10 @@ def repository_tree(
     _require_connected(owner, name)
     record = repository_intelligence_service.get_scan(f"{owner}/{name}")
     if record is None or record.payload is None or record.status != "ready":
-        raise HTTPException(status_code=404, detail="Repository tree is not available. Scan the repository first.")
+        raise HTTPException(
+            status_code=404,
+            detail="Repository tree is not available. Scan the repository first.",
+        )
     return record.payload.directory_tree.model_dump(mode="json")
 
 
@@ -440,7 +512,10 @@ def symbol_lookup(
     _require_connected(owner, name)
     record = repository_intelligence_service.get_scan(f"{owner}/{name}")
     if record is None or record.payload is None or record.status != "ready":
-        raise HTTPException(status_code=404, detail="Repository symbols are not available. Scan the repository first.")
+        raise HTTPException(
+            status_code=404,
+            detail="Repository symbols are not available. Scan the repository first.",
+        )
     query = q.lower() if q else None
     symbols = [
         symbol.model_dump(mode="json")
@@ -453,6 +528,114 @@ def symbol_lookup(
     return SymbolLookupResponse(count=len(symbols), symbols=symbols[:limit])
 
 
+@router.get("/{owner}/{name}/references")
+def symbol_references(
+    owner: str,
+    name: str,
+    symbol: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    references = repository_graph_service.symbol_references(
+        f"{owner}/{name}",
+        symbol,
+        limit=limit,
+    )
+    return {
+        "count": len(references),
+        "references": references,
+    }
+
+
+@router.get("/{owner}/{name}/search", response_model=RepositorySearchResponse)
+async def search_repository(
+    owner: str,
+    name: str,
+    q: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=20, ge=1, le=100),
+    language: str | None = Query(default=None),
+    file_type: str | None = Query(default=None),
+    symbol_type: str | None = Query(default=None),
+    include_documentation: bool | None = Query(default=None),
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    payload = await repository_intelligence_service.search_repository(
+        f"{owner}/{name}",
+        q,
+        limit=limit,
+        language=language,
+        file_type=file_type,
+        symbol_type=symbol_type,
+        include_documentation=include_documentation,
+    )
+    return RepositorySearchResponse(**payload)
+
+
+@router.get("/{owner}/{name}/context")
+async def repository_context(
+    owner: str,
+    name: str,
+    q: str = Query(min_length=1, max_length=500),
+    file_limit: int = Query(default=6, ge=1, le=20),
+    symbol_limit: int = Query(default=8, ge=1, le=30),
+    documentation_limit: int = Query(default=4, ge=1, le=20),
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    package = await repository_context_service.aget_context(
+        f"{owner}/{name}",
+        q,
+        file_limit=file_limit,
+        symbol_limit=symbol_limit,
+        documentation_limit=documentation_limit,
+    )
+    return package.model_dump(mode="json")
+
+
+@router.get("/{owner}/{name}/documentation")
+def repository_documentation(
+    owner: str,
+    name: str,
+    q: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=20, ge=1, le=100),
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    documents = repository_intelligence_service.list_documentation(
+        f"{owner}/{name}",
+        query=q,
+        limit=limit,
+    )
+    return {"count": len(documents), "documents": documents}
+
+
+@router.get("/{owner}/{name}/files")
+def repository_file(
+    owner: str,
+    name: str,
+    path: str = Query(min_length=1, max_length=4096),
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    try:
+        return repository_intelligence_service.read_file(f"{owner}/{name}", path)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{owner}/{name}/impact")
+def repository_impact(
+    owner: str,
+    name: str,
+    path: str = Query(min_length=1, max_length=4096),
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    return repository_graph_service.query_impact(f"{owner}/{name}", path)
+
+
 @router.get("/{owner}/{name}/dependency-graph")
 def dependency_graph(
     owner: str,
@@ -462,5 +645,8 @@ def dependency_graph(
     _require_connected(owner, name)
     record = repository_intelligence_service.get_scan(f"{owner}/{name}")
     if record is None or record.payload is None or record.status != "ready":
-        raise HTTPException(status_code=404, detail="Repository dependency graph is not available. Scan the repository first.")
+        raise HTTPException(
+            status_code=404,
+            detail="Repository dependency graph is not available. Scan the repository first.",
+        )
     return record.payload.dependency_graph.model_dump(mode="json")
