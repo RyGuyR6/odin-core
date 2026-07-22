@@ -292,7 +292,10 @@ class Planner:
                     ],
                     integration_point="planner",
                     task_type="planning",
-                    execution_profile=profile,  # type: ignore[arg-type]
+                    execution_profile=(
+                        profile if profile in ("economy", "balanced", "maximum")
+                        else None
+                    ),
                     response_format={"type": "json_object"},
                 )
             )

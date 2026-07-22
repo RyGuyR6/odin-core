@@ -180,8 +180,10 @@ async def chat_with_tools(request: ToolChatRequest):
         raise HTTPException(
             status_code=400,
             detail={
-                "message": f"Unknown tool names: {unknown}. "
-                           "Tools must be registered server-side in the OIC-009 platform.",
+                "message": (
+                    f"Unknown tool names: {unknown}. "
+                    "Tools must be registered server-side in the OIC-009 platform."
+                ),
                 "unknown_tools": unknown,
                 "available_tools": adapter.list_available_names(),
             },

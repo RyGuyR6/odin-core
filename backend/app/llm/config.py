@@ -26,6 +26,10 @@ _DEFAULT_TASK_PROFILE_MATRIX: dict[tuple[str, str], str] = {
     ("repository_search", "economy"): "economy",
     ("embedding", "economy"): "embedding",
     # balanced profile
+    # Note: code_generation, debugging, repair, and large_context_analysis intentionally use
+    # 'primary' even on balanced — these tasks are sensitive to model quality and the extra
+    # cost is justified for correctness. Less critical tasks (documentation, planning) use
+    # 'balanced' to keep costs proportional.
     ("chat", "balanced"): "balanced",
     ("planning", "balanced"): "balanced",
     ("code_generation", "balanced"): "primary",

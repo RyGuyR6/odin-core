@@ -399,11 +399,10 @@ class LLMService:
         }
         task_model_map = {
             task: self.settings.model_for_task(task, self.settings.default_execution_profile)
-            for task in [
-                "chat", "planning", "code_generation", "debugging",
-                "documentation", "memory_summarization", "repair",
-                "large_context_analysis", "repository_search",
-            ]
+            for task in (
+                t for t in TaskType.__args__  # type: ignore[attr-defined]
+                if t != "embedding"  # embedding uses its own model role
+            )
         }
 
         # Collect configured model warnings from OpenAI provider
