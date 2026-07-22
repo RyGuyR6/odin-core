@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from app.api import repositories as repositories_api
 from app.auth import Principal, UserPublic, UserRole, get_current_principal
@@ -218,6 +219,15 @@ def build_message() -> str:
         symbol.file_path == "frontend/components/widget.tsx"
         for symbol in second.payload.symbols
     )
+
+
+def test_validate_local_path_rejects_missing_directory(tmp_path: Path, monkeypatch) -> None:
+    missing = tmp_path / "repo"
+    monkeypatch.setenv("ODIN_REPOSITORY_SCAN_ROOTS", str(tmp_path))
+    service = intelligence_module.RepositoryIntelligenceService()
+
+    with pytest.raises(ValueError, match="does not exist"):
+        service.validate_local_path(str(missing))
 
 
 def test_repository_intelligence_api_endpoints(tmp_path: Path, monkeypatch) -> None:

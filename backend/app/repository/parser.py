@@ -95,14 +95,12 @@ class RepositoryParser:
     def parse(self, file: Path) -> ast.Module:
         source = file.read_text(encoding="utf-8")
         document = self.parse_document(file, source)
-        assert document.tree is not None
-        return document.tree
+        return self._require_tree(document, file.as_posix())
 
     def parse_source(self, source: str, filename: str = "<string>") -> ast.Module:
         path = Path(filename)
         document = self.parse_document(path, source, language="Python")
-        assert document.tree is not None
-        return document.tree
+        return self._require_tree(document, path.as_posix())
 
     def parse_document(
         self,
@@ -125,3 +123,9 @@ class RepositoryParser:
             if parser.supports(file_path, language):
                 return parser
         return self._fallback
+
+    @staticmethod
+    def _require_tree(document: ParsedRepositoryDocument, path: str) -> ast.Module:
+        if document.tree is None:
+            raise ValueError(f"Language-aware AST is unavailable for {path}.")
+        return document.tree

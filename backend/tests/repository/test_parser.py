@@ -1,6 +1,8 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 from app.repository.parser import RepositoryParser
 
 
@@ -53,3 +55,13 @@ def test_parse_document_falls_back_to_safe_text():
     assert document.parser == "safe_text"
     assert document.tree is None
     assert "Repository docs" in (document.text or "")
+
+
+def test_parse_raises_when_ast_is_unavailable(tmp_path: Path):
+
+    parser = RepositoryParser()
+    file = tmp_path / "README.md"
+    file.write_text("# Sample\n")
+
+    with pytest.raises(ValueError, match="AST is unavailable"):
+        parser.parse(file)

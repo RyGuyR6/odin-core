@@ -438,14 +438,14 @@ export default function RepositoriesPage() {
   }, [loadDetails, selected]);
 
   useEffect(() => {
-    if (!selected || selectedScanStatus !== "scanning") {
+    if (!selected || selectedScanStatus !== "scanning" || detailsLoading) {
       return;
     }
     const id = window.setTimeout(() => {
       void loadDetails(selected);
     }, 2000);
     return () => window.clearTimeout(id);
-  }, [loadDetails, selected, selectedScanStatus]);
+  }, [detailsLoading, loadDetails, selected, selectedScanStatus]);
 
   function chooseRepository(value: string) {
     setSelected(value);
@@ -699,7 +699,7 @@ export default function RepositoriesPage() {
           )}
           {status?.intelligence.indexed_revision && (
             <span className="rounded-full border border-white/10 px-3 py-1">
-              Indexed revision: {status.intelligence.indexed_revision.slice(0, 12)}
+              Indexed revision: {status.intelligence.indexed_revision?.slice(0, 12) || "unknown"}
             </span>
           )}
           {typeof status?.intelligence.metadata?.indexed_branch === "string" && (

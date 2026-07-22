@@ -144,8 +144,10 @@ class RepositoryContextService:
             *[item["excerpt"] for item in documentation],
         ]
         # Use a lightweight ~4 chars/token heuristic so planner/chat callers can
-        # bound repository context without making an extra model call. This is a
-        # coarse estimate intended for ranking and truncation, not billing.
+        # bound repository context without making an extra model call. This
+        # estimate is intentionally coarse and may vary materially for code,
+        # identifiers, and non-English content, so callers should use it for
+        # ranking and truncation only, not billing or hard limits.
         token_estimate = sum(
             max(1, len(section) // 4) for section in rendered_sections if section
         )

@@ -319,7 +319,8 @@ def scan_repository(
     full_name = f"{owner}/{name}"
     if request.local_path:
         validated_local_path = _validated_local_path(request.local_path)
-        assert validated_local_path is not None
+        if validated_local_path is None:
+            raise HTTPException(status_code=400, detail="Repository path is required.")
         _update_local_path(full_name, validated_local_path)
         row = _require_connected(owner, name)
     local_path = _resolve_scan_path(row)
@@ -343,7 +344,8 @@ def start_repository_index(
     full_name = f"{owner}/{name}"
     if request.local_path:
         validated_local_path = _validated_local_path(request.local_path)
-        assert validated_local_path is not None
+        if validated_local_path is None:
+            raise HTTPException(status_code=400, detail="Repository path is required.")
         _update_local_path(full_name, validated_local_path)
         row = _require_connected(owner, name)
     local_path = _resolve_scan_path(row)

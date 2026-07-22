@@ -48,6 +48,7 @@ SCRIPT_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
 SOURCE_EXTENSIONS = {".py", *SCRIPT_EXTENSIONS}
 LOCAL_SCRIPT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
 MAX_SEMANTIC_RANKING_RESULTS = 24
+MAX_EMBEDDING_CACHE_SIZE = 512
 IMPORT_RE = re.compile(
     r"^\s*import\s+(?:type\s+)?(?P<what>.+?)\s+from\s+[\"'](?P<module>[^\"']+)[\"']",
     re.MULTILINE,
@@ -462,7 +463,8 @@ class RepositoryIntelligenceService:
     def start_indexing(self, full_name: str, local_path: str) -> RepositoryScanRecord:
         root = self.validate_local_path(local_path)
         cancel_event = self._set_cancel_event(full_name, create=True)
-        assert cancel_event is not None
+        if cancel_event is None:
+            raise RuntimeError("Failed to create repository indexing cancellation state.")
         self.mark_scanning(full_name, str(root))
 
         def worker() -> None:
@@ -548,9 +550,6 @@ class RepositoryIntelligenceService:
             raise ValueError("Repository path must be absolute.")
         if ".." in raw_path.parts:
             raise ValueError("Repository path must not contain parent traversal.")
-        candidate = raw_path.resolve()
-        if not candidate.exists() or not candidate.is_dir():
-            raise ValueError("Repository path does not exist.")
 
         settings = get_repository_settings()
         roots = [Path.cwd().resolve(), settings.workspace_root.resolve()]
@@ -562,12 +561,14 @@ class RepositoryIntelligenceService:
                 if value.strip()
             )
         for root in roots:
-            if not self._is_relative_to(candidate, root):
+            try:
+                relative = raw_path.relative_to(root)
+            except ValueError:
                 continue
-            relative = candidate.relative_to(root).as_posix()
-            sanitized = safe_child(root, relative)
-            if sanitized == candidate:
+            sanitized = safe_child(root, relative.as_posix())
+            if sanitized.exists() and sanitized.is_dir():
                 return sanitized
+            raise ValueError("Repository path does not exist.")
         raise ValueError("Repository path is outside the allowed scan roots.")
 
     @staticmethod
@@ -940,6 +941,9 @@ class RepositoryIntelligenceService:
                 missing_indexes, missing, response.embeddings, strict=True
             ):
                 self._embedding_cache[text] = vector
+                if len(self._embedding_cache) > MAX_EMBEDDING_CACHE_SIZE:
+                    oldest = next(iter(self._embedding_cache))
+                    self._embedding_cache.pop(oldest, None)
                 vectors[index] = vector
         return vectors
 
