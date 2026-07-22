@@ -167,7 +167,7 @@ class ChatService:
             return "New conversation"
         first_content = messages[0].content
         prompt_text = (
-            "Summarise the following message as a short 4–6 word chat title. "
+            "Summarize the following message as a short 4-6 word chat title. "
             "Reply with only the title, no punctuation at the end.\n\n"
             f"Message: {first_content[:500]}"
         )

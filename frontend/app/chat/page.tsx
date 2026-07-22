@@ -45,7 +45,8 @@ export default function ChatPage() {
       void refreshConversations();
     }, 0);
     return () => window.clearTimeout(id);
-  }, [refreshConversations]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Scroll to bottom whenever messages/streaming changes
   useEffect(() => {
@@ -166,7 +167,8 @@ export default function ChatPage() {
               break;
             }
           } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message !== "JSON") {
+            // Silently skip unparseable SSE lines; rethrow real errors
+            if (!(parseErr instanceof SyntaxError)) {
               throw parseErr;
             }
           }

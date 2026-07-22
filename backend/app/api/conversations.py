@@ -208,8 +208,8 @@ async def stream_message(conversation_id: str, request: StreamMessageRequest):
             ):
                 yield f"data: {json.dumps({'delta': chunk.delta, 'done': chunk.done, 'model': chunk.model})}\n\n"
             yield f"data: {json.dumps({'delta': '', 'done': True})}\n\n"
-        except Exception as exc:
-            yield f"event: error\ndata: {json.dumps({'error': str(exc), 'done': True})}\n\n"
+        except Exception:
+            yield f"event: error\ndata: {json.dumps({'error': 'Stream generation failed. Please try again.', 'done': True})}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")
 

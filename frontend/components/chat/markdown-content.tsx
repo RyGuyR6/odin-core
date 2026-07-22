@@ -18,7 +18,7 @@ function CodeBlock({
 }) {
   const [copied, setCopied] = useState(false);
   const code = String(children ?? "").replace(/\n$/, "");
-  const lang = className?.replace("language-", "") ?? "code";
+  const lang = className?.replace("language-", "") ?? "text";
 
   function copy() {
     void navigator.clipboard.writeText(code).then(() => {
