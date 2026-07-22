@@ -1,23 +1,19 @@
 """Tests for ChatService — OW-007 Native AI Chat backend."""
+
 from __future__ import annotations
 
 import asyncio
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from typing import AsyncIterator
-
-import pytest
 
 from app.conversations.config import ConversationSettings
 from app.conversations.manager import ConversationManager
 from app.conversations.models import ConversationCreate, MessageCreate
 from app.llm.config import LLMSettings
-from app.llm.models import ChatMessage, ChatRequest, LLMResponse, StreamChunk, Usage
-from app.llm.providers.base import LLMProvider
 from app.llm.service import LLMService
 from app.services.chat_service import ChatService
-
+from app.services.repository_context import RepositoryContextPackage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -114,6 +110,21 @@ def _make_llm_service(response: str = "Odin reply") -> LLMService:
     return svc
 
 
+def _make_capturing_llm_service(
+    response: str = "Odin reply",
+) -> tuple[LLMService, _FakeClient]:
+    from app.llm.providers.openai import OpenAIProvider
+
+    settings = _llm_settings()
+    provider = OpenAIProvider(settings)
+    client = _FakeClient()
+    client.chat.completions.response = _fake_llm_response(response)
+    provider._client = client  # type: ignore[attr-defined]
+    svc = LLMService(settings=settings)
+    svc.registry.register(provider, replace=True)
+    return svc, client
+
+
 def _make_streaming_llm_service(chunks: list[str]) -> LLMService:
     from app.llm.providers.openai import OpenAIProvider
 
@@ -161,9 +172,7 @@ def test_send_message_returns_user_and_assistant():
     service = ChatService(conversation_manager=manager, llm_service=llm)
 
     conv = service.create_conversation(title="Ping")
-    user_msg, asst_msg = asyncio.run(
-        service.send_message(conv["id"], "Ping")
-    )
+    user_msg, asst_msg = asyncio.run(service.send_message(conv["id"], "Ping"))
 
     assert user_msg["role"] == "user"
     assert user_msg["content"] == "Ping"
@@ -173,7 +182,9 @@ def test_send_message_returns_user_and_assistant():
 
 def test_send_message_persists_to_conversation():
     manager = _tmp_conversation_manager()
-    service = ChatService(conversation_manager=manager, llm_service=_make_llm_service("stored"))
+    service = ChatService(
+        conversation_manager=manager, llm_service=_make_llm_service("stored")
+    )
 
     conv = service.create_conversation()
     asyncio.run(service.send_message(conv["id"], "hello"))
@@ -183,6 +194,33 @@ def test_send_message_persists_to_conversation():
     assert stored[0].role == "user"
     assert stored[1].role == "assistant"
     assert stored[1].content == "stored"
+
+
+def test_send_message_includes_repository_context(monkeypatch):
+    manager = _tmp_conversation_manager()
+    llm, client = _make_capturing_llm_service("repo aware")
+    service = ChatService(conversation_manager=manager, llm_service=llm)
+    conv = service.create_conversation()
+
+    async def fake_context(*args, **kwargs):
+        return RepositoryContextPackage(
+            repository="acme/repo",
+            indexed_revision="abc123",
+            repository_summary={"project_purpose": "Repository tests"},
+        )
+
+    monkeypatch.setattr(
+        "app.services.chat_service.repository_context_service.aget_context",
+        fake_context,
+    )
+
+    asyncio.run(
+        service.send_message(conv["id"], "Explain auth", repository="acme/repo")
+    )
+
+    first_message = client.chat.completions.calls[0]["messages"][0]
+    assert "Repository context" in first_message["content"]
+    assert "acme/repo" in first_message["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +283,9 @@ def test_update_conversation_title():
 
     manager = _tmp_conversation_manager()
     conv = manager.create_conversation(ConversationCreate(title="Old title"))
-    updated = manager.update_conversation(conv.id, ConversationUpdate(title="New title"))
+    updated = manager.update_conversation(
+        conv.id, ConversationUpdate(title="New title")
+    )
     assert updated.title == "New title"
 
 
@@ -277,7 +317,9 @@ def test_delete_and_restore_conversation():
 def test_search_conversations():
     manager = _tmp_conversation_manager()
     conv = manager.create_conversation(ConversationCreate(title="Searchable"))
-    manager.add_message(conv.id, MessageCreate(role="user", content="unique-keyword-xyz"))
+    manager.add_message(
+        conv.id, MessageCreate(role="user", content="unique-keyword-xyz")
+    )
 
     from app.conversations.models import ConversationSearchRequest
 

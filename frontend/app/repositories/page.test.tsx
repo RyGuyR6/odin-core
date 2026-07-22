@@ -77,6 +77,13 @@ const symbols = {
   ],
 };
 
+const documentation = {
+  count: 1,
+  documents: [
+    { path: "README.md", line: 1, title: "sample-repo", kind: "documentation", excerpt: "Sample repository for repository intelligence tests." },
+  ],
+};
+
 function installFetchMock(handler: (url: string, init?: RequestInit) => MockResponse) {
   global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -108,13 +115,14 @@ describe("RepositoriesPage", () => {
       if (url === "/api/repositories/acme/repo/tree") return { body: tree };
       if (url === "/api/repositories/acme/repo/dependency-graph") return { body: graph };
       if (url === "/api/repositories/acme/repo/symbols") return { body: symbols };
+      if (url === "/api/repositories/acme/repo/documentation") return { body: documentation };
       throw new Error(`Unhandled URL: ${url}`);
     });
 
     render(<RepositoriesPage />);
 
     expect(await screen.findByText("Repository Intelligence")).toBeInTheDocument();
-    expect(await screen.findByText(summary.project_purpose)).toBeInTheDocument();
+    expect((await screen.findAllByText(summary.project_purpose)).length).toBeGreaterThan(0);
     expect(screen.getByText("FastAPI, Next.js")).toBeInTheDocument();
     expect(screen.getAllByText("backend/app/main.py").length).toBeGreaterThan(0);
     expect(screen.getAllByText("frontend/app/page.tsx").length).toBeGreaterThan(0);
@@ -151,6 +159,7 @@ describe("RepositoriesPage", () => {
       if (url === "/api/repositories/acme/repo/tree") return { body: tree };
       if (url === "/api/repositories/acme/repo/dependency-graph") return { body: graph };
       if (url === "/api/repositories/acme/repo/symbols") return { body: symbols };
+      if (url === "/api/repositories/acme/repo/documentation") return { body: documentation };
       throw new Error(`Unhandled URL: ${url}`);
     });
 

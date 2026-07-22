@@ -69,8 +69,10 @@ type ScanStatus = {
   updated_at?: string | null;
   error?: string | null;
   local_path?: string | null;
+  indexed_revision?: string | null;
   summary?: RepositorySummary | null;
   architecture?: ArchitectureCategory[];
+  metadata?: Record<string, unknown>;
 };
 
 type RepositoryStatus = {
@@ -99,6 +101,58 @@ type SymbolRecord = {
 type SymbolLookupResponse = {
   count: number;
   symbols: SymbolRecord[];
+};
+
+type RepositorySearchResult = {
+  repository: string;
+  file_path: string;
+  symbol?: string | null;
+  source_location?: { line?: number | null } | null;
+  relevance_score: number;
+  match_type: string;
+  excerpt: string;
+  indexed_revision?: string | null;
+  language?: string | null;
+  file_type?: string | null;
+};
+
+type RepositorySearchResponse = {
+  count: number;
+  results: RepositorySearchResult[];
+  stale: boolean;
+  indexed_revision?: string | null;
+};
+
+type DocumentationRecord = {
+  path: string;
+  line: number;
+  title: string;
+  kind: string;
+  symbol?: string | null;
+  excerpt: string;
+};
+
+type FileContentResponse = {
+  repository: string;
+  path: string;
+  content: string;
+  truncated: boolean;
+  indexed_revision?: string | null;
+};
+
+type SymbolReference = {
+  symbol: string;
+  file_path: string;
+  line: number;
+  kind: string;
+  excerpt: string;
+};
+
+type ImpactResponse = {
+  path: string;
+  dependencies: string[];
+  dependents: string[];
+  tests: string[];
 };
 
 type ScanResponse = {
@@ -183,6 +237,12 @@ export default function RepositoriesPage() {
   const [architecture, setArchitecture] = useState<ArchitectureCategory[]>([]);
   const [symbols, setSymbols] = useState<SymbolRecord[]>([]);
   const [symbolQuery, setSymbolQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<RepositorySearchResult[]>([]);
+  const [documentation, setDocumentation] = useState<DocumentationRecord[]>([]);
+  const [fileContent, setFileContent] = useState<FileContentResponse | null>(null);
+  const [references, setReferences] = useState<SymbolReference[]>([]);
+  const [impact, setImpact] = useState<ImpactResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -204,6 +264,11 @@ export default function RepositoriesPage() {
     setGraph(null);
     setArchitecture([]);
     setSymbols([]);
+    setSearchResults([]);
+    setDocumentation([]);
+    setFileContent(null);
+    setReferences([]);
+    setImpact(null);
   }, []);
 
   const loadSymbols = useCallback(
@@ -217,9 +282,54 @@ export default function RepositoriesPage() {
     [],
   );
 
+  const loadDocumentation = useCallback(async (fullName: string, query = "") => {
+    const search = new URLSearchParams();
+    if (query) search.set("q", query);
+    const suffix = search.size > 0 ? `?${search.toString()}` : "";
+    const result = await request<{ documents: DocumentationRecord[] }>(
+      `/${fullName}/documentation${suffix}`,
+    );
+    setDocumentation(result.documents);
+  }, []);
+
+  const loadFile = useCallback(async (fullName: string, path: string) => {
+    const search = new URLSearchParams({ path });
+    const result = await request<FileContentResponse>(
+      `/${fullName}/files?${search.toString()}`,
+    );
+    setFileContent(result);
+    const impactResult = await request<ImpactResponse>(
+      `/${fullName}/impact?${search.toString()}`,
+    );
+    setImpact(impactResult);
+  }, []);
+
+  const loadReferences = useCallback(async (fullName: string, symbol: string) => {
+    const search = new URLSearchParams({ symbol });
+    const result = await request<{ references: SymbolReference[] }>(
+      `/${fullName}/references?${search.toString()}`,
+    );
+    setReferences(result.references);
+  }, []);
+
+  const searchRepository = useCallback(async (fullName: string, query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const search = new URLSearchParams({ q: query.trim() });
+    const result = await request<RepositorySearchResponse>(
+      `/${fullName}/search?${search.toString()}`,
+    );
+    setSearchResults(result.results);
+  }, []);
+
   const loadDetails = useCallback(
     async (fullName: string) => {
       setDetailsLoading(true);
+      setFileContent(null);
+      setReferences([]);
+      setImpact(null);
       try {
         const repositoryStatus = await request<RepositoryStatus>(`/${fullName}/status`);
         setStatus(repositoryStatus);
@@ -236,12 +346,14 @@ export default function RepositoriesPage() {
           setGraph(graphResult);
           setArchitecture(repositoryStatus.intelligence.architecture ?? []);
           await loadSymbols(fullName, symbolQuery);
+          await loadDocumentation(fullName);
         } else {
           setSummary(repositoryStatus.intelligence.summary ?? null);
           setTree(null);
           setGraph(null);
           setArchitecture(repositoryStatus.intelligence.architecture ?? []);
           setSymbols([]);
+          setDocumentation([]);
         }
       } catch (reason) {
         setSummary(null);
@@ -254,7 +366,7 @@ export default function RepositoriesPage() {
         setDetailsLoading(false);
       }
     },
-    [loadSymbols, symbolQuery],
+    [loadDocumentation, loadSymbols, symbolQuery],
   );
 
   const load = useCallback(async () => {
@@ -362,7 +474,11 @@ export default function RepositoriesPage() {
             }
           : current,
       );
-      await Promise.all([load(), loadSymbols(selected, symbolQuery)]);
+      await Promise.all([
+        load(),
+        loadSymbols(selected, symbolQuery),
+        loadDocumentation(selected, searchQuery),
+      ]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to scan repository");
     } finally {
@@ -376,6 +492,18 @@ export default function RepositoriesPage() {
       await loadSymbols(selected, symbolQuery);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to search symbols");
+    }
+  }
+
+  async function runRepositorySearch() {
+    if (!selected) return;
+    try {
+      await Promise.all([
+        searchRepository(selected, searchQuery),
+        loadDocumentation(selected, searchQuery),
+      ]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to search repository");
     }
   }
 
@@ -451,6 +579,11 @@ export default function RepositoriesPage() {
           {selectedRepository?.default_branch && (
             <span className="rounded-full border border-white/10 px-3 py-1">
               Default branch: {selectedRepository.default_branch}
+            </span>
+          )}
+          {status?.intelligence.indexed_revision && (
+            <span className="rounded-full border border-white/10 px-3 py-1">
+              Indexed revision: {status.intelligence.indexed_revision.slice(0, 12)}
             </span>
           )}
         </div>
@@ -570,6 +703,183 @@ export default function RepositoriesPage() {
 
       <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <article className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <h2 className="text-lg font-semibold">Repository search</h2>
+              <p className="text-sm text-zinc-400">
+                Hybrid file, symbol, lexical, documentation, and semantic search.
+              </p>
+            </div>
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search files, symbols, docs"
+              className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-500 sm:w-72"
+            />
+            <button
+              type="button"
+              disabled={!selected}
+              onClick={() => void runRepositorySearch()}
+              className="rounded-xl border border-white/10 px-4 py-2 text-sm hover:bg-white/5 disabled:opacity-40"
+            >
+              Search
+            </button>
+          </div>
+          {searchResults.length > 0 ? (
+            <div className="mt-4 space-y-3">
+              {searchResults.map((result) => (
+                <button
+                  type="button"
+                  key={`${result.file_path}-${result.symbol ?? ""}-${result.match_type}-${result.source_location?.line ?? 0}`}
+                  onClick={() => {
+                    if (!selected) return;
+                    void loadFile(selected, result.file_path);
+                    if (result.symbol) {
+                      void loadReferences(selected, result.symbol);
+                    }
+                  }}
+                  className="block w-full rounded-xl border border-white/10 p-3 text-left hover:bg-white/[0.03]"
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                    <span>{result.match_type}</span>
+                    <span>•</span>
+                    <span>{result.relevance_score.toFixed(1)}</span>
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-white">
+                    {result.symbol || result.file_path}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    {result.file_path}
+                    {result.source_location?.line ? `:${result.source_location.line}` : ""}
+                  </p>
+                  <p className="mt-2 line-clamp-3 text-sm text-zinc-300">
+                    {result.excerpt}
+                  </p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-zinc-400">Search results appear here.</p>
+          )}
+        </article>
+
+        <article className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <h2 className="text-lg font-semibold">Documentation browser</h2>
+          {documentation.length > 0 ? (
+            <div className="mt-4 space-y-3">
+              {documentation.map((item) => (
+                <button
+                  type="button"
+                  key={`${item.path}-${item.line}-${item.title}`}
+                  onClick={() => {
+                    if (!selected) return;
+                    void loadFile(selected, item.path);
+                    if (item.symbol) {
+                      void loadReferences(selected, item.symbol);
+                    }
+                  }}
+                  className="block w-full rounded-xl border border-white/10 p-3 text-left hover:bg-white/[0.03]"
+                >
+                  <p className="text-sm font-medium text-white">{item.title}</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {item.path}:{item.line}
+                  </p>
+                  <p className="mt-2 line-clamp-4 text-sm text-zinc-300">
+                    {item.excerpt}
+                  </p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-zinc-400">Indexed docs and docstrings appear here.</p>
+          )}
+        </article>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <article className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <h2 className="text-lg font-semibold">Code viewer</h2>
+          {fileContent ? (
+            <div className="mt-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                <span>{fileContent.path}</span>
+                {fileContent.indexed_revision && (
+                  <>
+                    <span>•</span>
+                    <span>{fileContent.indexed_revision.slice(0, 12)}</span>
+                  </>
+                )}
+              </div>
+              <pre className="max-h-[30rem] overflow-auto rounded-xl border border-white/10 bg-zinc-950 p-4 text-xs text-zinc-200">
+                {fileContent.content}
+              </pre>
+              {fileContent.truncated && (
+                <p className="text-xs text-zinc-500">File output truncated for display.</p>
+              )}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-zinc-400">Select a search result, symbol, or document to preview file content.</p>
+          )}
+        </article>
+
+        <article className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <h2 className="text-lg font-semibold">References & impact</h2>
+          <div className="mt-4 space-y-4">
+            {references.length > 0 ? (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-zinc-500">Symbol references</p>
+                <div className="mt-2 space-y-2">
+                  {references.slice(0, 12).map((reference) => (
+                    <button
+                      type="button"
+                      key={`${reference.file_path}-${reference.line}-${reference.symbol}`}
+                      onClick={() => {
+                        if (!selected) return;
+                        void loadFile(selected, reference.file_path);
+                      }}
+                      className="block w-full rounded-xl border border-white/10 px-3 py-2 text-left hover:bg-white/[0.03]"
+                    >
+                      <p className="text-sm text-white">
+                        {reference.file_path}:{reference.line}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-400">{reference.excerpt}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-400">Select a symbol to inspect indexed references.</p>
+            )}
+
+            {impact && (
+              <div className="space-y-3">
+                <p className="text-xs uppercase tracking-wide text-zinc-500">Impact view</p>
+                <div className="rounded-xl border border-white/10 p-3">
+                  <p className="text-xs text-zinc-500">Dependencies</p>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    {impact.dependencies.join(", ") || "None detected"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 p-3">
+                  <p className="text-xs text-zinc-500">Dependents</p>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    {impact.dependents.join(", ") || "None detected"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 p-3">
+                  <p className="text-xs text-zinc-500">Likely tests</p>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    {impact.tests.join(", ") || "None detected"}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </article>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <article className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <h2 className="text-lg font-semibold">Dependency visualization</h2>
           {graph ? (
             <div className="mt-4 space-y-4 text-sm text-zinc-300">
@@ -665,7 +975,17 @@ export default function RepositoriesPage() {
                 </thead>
                 <tbody className="divide-y divide-white/10">
                   {symbols.map((symbol) => (
-                    <tr key={`${symbol.qualified_name}-${symbol.file_path}-${symbol.line}`}>
+                    <tr
+                      key={`${symbol.qualified_name}-${symbol.file_path}-${symbol.line}`}
+                      className="cursor-pointer hover:bg-white/[0.03]"
+                      onClick={() => {
+                        if (!selected) return;
+                        void Promise.all([
+                          loadReferences(selected, symbol.qualified_name),
+                          loadFile(selected, symbol.file_path),
+                        ]);
+                      }}
+                    >
                       <td className="px-3 py-2 text-white">
                         {symbol.qualified_name}
                         {symbol.container && <span className="ml-2 text-xs text-zinc-500">in {symbol.container}</span>}

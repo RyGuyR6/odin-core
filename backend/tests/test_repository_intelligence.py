@@ -15,18 +15,22 @@ def create_sample_repository(root: Path) -> Path:
     (root / "backend/app").mkdir(parents=True)
     (root / "frontend/components").mkdir(parents=True)
     (root / "frontend/app/api/health").mkdir(parents=True)
-    (root / "README.md").write_text("# sample-repo\n\nSample repository for repository intelligence tests.\n")
+    (root / "README.md").write_text(
+        "# sample-repo\n\nSample repository for repository intelligence tests.\n"
+    )
+    (root / "docs").mkdir(parents=True)
+    (root / "docs/architecture.md").write_text(
+        "# Architecture\n\nHealth route uses backend services.\n"
+    )
     (root / ".env.example").write_text("ODIN_ENV=test\n")
-    (root / "pyproject.toml").write_text(
-        """
+    (root / "pyproject.toml").write_text("""
 [project]
 name = "sample-repo"
 dependencies = ["fastapi", "pydantic"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
-""".strip()
-    )
+""".strip())
     (root / "package.json").write_text(
         json.dumps(
             {
@@ -37,8 +41,7 @@ addopts = "-q"
             }
         )
     )
-    (root / "backend/app/main.py").write_text(
-        """
+    (root / "backend/app/main.py").write_text("""
 from fastapi import APIRouter
 from .service import build_message
 
@@ -47,49 +50,41 @@ router = APIRouter()
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": build_message()}
-""".strip()
-    )
-    (root / "backend/app/service.py").write_text(
-        """
+""".strip())
+    (root / "backend/app/service.py").write_text("""
+\"\"\"Health service helpers.\"\"\"
+
 from .models import STATUS_MESSAGE
 
 
 def build_message() -> str:
+    \"\"\"Build the outward-facing health response.\"\"\"
     return STATUS_MESSAGE
-""".strip()
-    )
-    (root / "backend/app/models.py").write_text(
-        """
+""".strip())
+    (root / "backend/app/models.py").write_text("""
 STATUS_MESSAGE = "ok"
-""".strip()
-    )
+""".strip())
     (root / "backend/app/cycle_a.py").write_text("from .cycle_b import helper_b\n")
     (root / "backend/app/cycle_b.py").write_text("from .cycle_a import helper_a\n")
-    (root / "frontend/components/widget.tsx").write_text(
-        """
+    (root / "frontend/components/widget.tsx").write_text("""
 export interface WidgetProps { label: string }
 export const DEFAULT_LABEL = "ready"
 export function Widget({ label }: WidgetProps) {
   return <div>{label}</div>;
 }
-""".strip()
-    )
-    (root / "frontend/app/page.tsx").write_text(
-        """
+""".strip())
+    (root / "frontend/app/page.tsx").write_text("""
 import { Widget, DEFAULT_LABEL } from "../components/widget";
 
 export default function Page() {
   return <Widget label={DEFAULT_LABEL} />;
 }
-""".strip()
-    )
-    (root / "frontend/app/api/health/route.ts").write_text(
-        """
+""".strip())
+    (root / "frontend/app/api/health/route.ts").write_text("""
 export async function GET() {
   return Response.json({ ok: true });
 }
-""".strip()
-    )
+""".strip())
     return root
 
 
@@ -143,7 +138,9 @@ async def fake_github_get(path: str, params=None):
     raise AssertionError(path)
 
 
-def test_repository_intelligence_service_scans_repository(tmp_path: Path, monkeypatch) -> None:
+def test_repository_intelligence_service_scans_repository(
+    tmp_path: Path, monkeypatch
+) -> None:
     root = create_sample_repository(tmp_path / "repo")
     monkeypatch.setenv("ODIN_REPOSITORY_SCAN_ROOTS", str(tmp_path))
     monkeypatch.setattr(intelligence_module, "DB_PATH", tmp_path / "odin.db")
@@ -157,12 +154,56 @@ def test_repository_intelligence_service_scans_repository(tmp_path: Path, monkey
     assert "TypeScript" in record.payload.summary.languages
     assert "FastAPI" in record.payload.summary.frameworks
     assert "Next.js" in record.payload.summary.frameworks
-    assert any(category.category == "api_routes" for category in record.payload.architecture)
+    assert any(
+        category.category == "api_routes" for category in record.payload.architecture
+    )
     assert any(symbol.qualified_name == "Widget" for symbol in record.payload.symbols)
     assert any(symbol.kind == "interface" for symbol in record.payload.symbols)
     assert any(
+        document.path == "README.md" for document in record.payload.documentation
+    )
+    assert any(
+        document.symbol == "build_message" for document in record.payload.documentation
+    )
+    assert any(
+        reference.symbol == "STATUS_MESSAGE" for reference in record.payload.references
+    )
+    assert any(
         sorted(cycle) == ["backend/app/cycle_a.py", "backend/app/cycle_b.py"]
         for cycle in record.payload.dependency_graph.circular_dependencies
+    )
+
+
+def test_repository_intelligence_incremental_metadata_tracks_changes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = create_sample_repository(tmp_path / "repo")
+    monkeypatch.setenv("ODIN_REPOSITORY_SCAN_ROOTS", str(tmp_path))
+    monkeypatch.setattr(intelligence_module, "DB_PATH", tmp_path / "odin.db")
+
+    service = intelligence_module.RepositoryIntelligenceService()
+    first = service.scan_repository("acme/repo", str(root))
+    assert first.payload is not None
+
+    (root / "backend/app/service.py").write_text("""
+\"\"\"Health service helpers.\"\"\"
+
+from .models import STATUS_MESSAGE
+
+
+def build_message() -> str:
+    \"\"\"Build the updated health response.\"\"\"
+    return STATUS_MESSAGE.upper()
+""".strip())
+    (root / "frontend/components/widget.tsx").unlink()
+
+    second = service.scan_repository("acme/repo", str(root))
+    assert second.payload is not None
+    assert "backend/app/service.py" in second.payload.metadata["changed_files"]
+    assert "frontend/components/widget.tsx" in second.payload.metadata["deleted_files"]
+    assert not any(
+        symbol.file_path == "frontend/components/widget.tsx"
+        for symbol in second.payload.symbols
     )
 
 
@@ -192,7 +233,9 @@ def test_repository_intelligence_api_endpoints(tmp_path: Path, monkeypatch) -> N
     status = client.get("/api/repositories/acme/repo/status")
     assert status.status_code == 200
     assert status.json()["intelligence"]["status"] == "ready"
-    assert status.json()["intelligence"]["summary"]["project_purpose"].startswith("Sample repository")
+    assert status.json()["intelligence"]["summary"]["project_purpose"].startswith(
+        "Sample repository"
+    )
 
     summary = client.get("/api/repositories/acme/repo/summary")
     assert summary.status_code == 200
@@ -209,4 +252,39 @@ def test_repository_intelligence_api_endpoints(tmp_path: Path, monkeypatch) -> N
 
     graph = client.get("/api/repositories/acme/repo/dependency-graph")
     assert graph.status_code == 200
-    assert any(edge["source"] == "frontend/app/page.tsx" for edge in graph.json()["edges"])
+    assert any(
+        edge["source"] == "frontend/app/page.tsx" for edge in graph.json()["edges"]
+    )
+
+    docs = client.get("/api/repositories/acme/repo/documentation?q=health")
+    assert docs.status_code == 200
+    assert docs.json()["count"] >= 1
+
+    search = client.get("/api/repositories/acme/repo/search?q=health")
+    assert search.status_code == 200
+    assert search.json()["count"] >= 1
+
+    context = client.get(
+        "/api/repositories/acme/repo/context?q=Update the health route"
+    )
+    assert context.status_code == 200
+    assert context.json()["repository"] == "acme/repo"
+    assert context.json()["relevant_files"]
+
+    references = client.get(
+        "/api/repositories/acme/repo/references?symbol=STATUS_MESSAGE"
+    )
+    assert references.status_code == 200
+    assert references.json()["count"] >= 1
+
+    file_response = client.get(
+        "/api/repositories/acme/repo/files?path=backend/app/service.py"
+    )
+    assert file_response.status_code == 200
+    assert "build_message" in file_response.json()["content"]
+
+    impact = client.get(
+        "/api/repositories/acme/repo/impact?path=backend/app/service.py"
+    )
+    assert impact.status_code == 200
+    assert "backend/app/main.py" in impact.json()["dependents"]

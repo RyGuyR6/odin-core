@@ -22,8 +22,12 @@ def execute_goal(payload: dict):
         "phases": plan.metadata.get("phases", []),
         "repository": plan.metadata.get("repository"),
         "repository_context": plan.metadata.get("repository_context"),
+        "repository_package": plan.metadata.get("repository_package"),
         "repository_summary": plan.metadata.get("repository_summary"),
         "candidate_files": plan.metadata.get("candidate_files", []),
+        "affected_symbols": plan.metadata.get("affected_symbols", []),
+        "dependencies": plan.metadata.get("dependencies", []),
+        "likely_tests": plan.metadata.get("likely_tests", []),
         "notes": plan.metadata.get("notes", []),
         "result": result.to_dict(),
     }

@@ -19,7 +19,7 @@ from app.agents.models import (
     WorkflowCreate,
     WorkflowRunRequest,
 )
-from app.services.repository_intelligence import repository_intelligence_service
+from app.services.repository_context import repository_context_service
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 workflows_router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -38,14 +38,18 @@ def _raise_http(exc: Exception) -> None:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, (AgentError, ValueError)):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    raise HTTPException(status_code=500, detail="Unexpected agent runtime error.") from exc
+    raise HTTPException(
+        status_code=500, detail="Unexpected agent runtime error."
+    ) from exc
 
 
 def _repository_context(value: Any) -> Any:
     if not isinstance(value, str):
         return value
-    enriched = repository_intelligence_service.render_repository_context(value.strip())
-    return enriched or value
+    package = repository_context_service.get_context(
+        value.strip(), "Provide repository runtime context."
+    )
+    return repository_context_service.render(package)
 
 
 def _enrich_agent_request(request: AgentRunRequest) -> AgentRunRequest:
@@ -108,7 +112,9 @@ async def agent_history(
 @router.post("/run")
 async def run_agent(request: AgentRunRequest):
     try:
-        return (await get_agent_manager().run_agent(_enrich_agent_request(request))).model_dump()
+        return (
+            await get_agent_manager().run_agent(_enrich_agent_request(request))
+        ).model_dump()
     except Exception as exc:
         _raise_http(exc)
 
@@ -124,10 +130,7 @@ async def get_agent_run(run_id: str):
 @router.get("/runs/{run_id}/events")
 async def get_agent_events(run_id: str):
     try:
-        return [
-            item.model_dump()
-            for item in get_agent_manager().list_events(run_id)
-        ]
+        return [item.model_dump() for item in get_agent_manager().list_events(run_id)]
     except Exception as exc:
         _raise_http(exc)
 
@@ -167,10 +170,7 @@ async def delete_agent(reference: str):
 
 @workflows_router.get("")
 async def list_workflows():
-    return [
-        item.model_dump()
-        for item in get_agent_manager().workflows.list()
-    ]
+    return [item.model_dump() for item in get_agent_manager().workflows.list()]
 
 
 @workflows_router.post("")
@@ -184,7 +184,9 @@ async def create_workflow(request: WorkflowCreate):
 @workflows_router.post("/run")
 async def run_workflow(request: WorkflowRunRequest):
     try:
-        return (await get_agent_manager().run_workflow(_enrich_workflow_request(request))).model_dump()
+        return (
+            await get_agent_manager().run_workflow(_enrich_workflow_request(request))
+        ).model_dump()
     except Exception as exc:
         _raise_http(exc)
 
