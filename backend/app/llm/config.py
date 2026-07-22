@@ -31,7 +31,9 @@ class LLMSettings:
     economy_model: str = field(
         default_factory=lambda: _env(
             "OPENAI_ECONOMY_MODEL",
-            os.getenv("OPENAI_DEFAULT_MODEL", os.getenv("ODIN_DEFAULT_MODEL", "gpt-5-mini")),
+            os.getenv(
+                "OPENAI_DEFAULT_MODEL", os.getenv("ODIN_DEFAULT_MODEL", "gpt-5-mini")
+            ),
         )
     )
     embedding_model: str = field(
@@ -39,7 +41,9 @@ class LLMSettings:
     )
     timeout_seconds: float = field(
         default_factory=lambda: float(
-            os.getenv("OPENAI_REQUEST_TIMEOUT", os.getenv("ODIN_LLM_TIMEOUT_SECONDS", "60"))
+            os.getenv(
+                "OPENAI_REQUEST_TIMEOUT", os.getenv("ODIN_LLM_TIMEOUT_SECONDS", "60")
+            )
         )
     )
     max_retries: int = field(
@@ -49,12 +53,18 @@ class LLMSettings:
     )
     retry_base_seconds: float = field(
         default_factory=lambda: float(
-            os.getenv("OPENAI_RETRY_BASE_SECONDS", os.getenv("ODIN_LLM_RETRY_BASE_SECONDS", "0.5"))
+            os.getenv(
+                "OPENAI_RETRY_BASE_SECONDS",
+                os.getenv("ODIN_LLM_RETRY_BASE_SECONDS", "0.5"),
+            )
         )
     )
-    pricing_registry_json: str = field(default_factory=lambda: _env("OPENAI_PRICING_REGISTRY", ""))
+    pricing_registry_json: str = field(
+        default_factory=lambda: _env("OPENAI_PRICING_REGISTRY", "")
+    )
     expose_raw_responses: bool = field(
-        default_factory=lambda: os.getenv("ODIN_LLM_EXPOSE_RAW", "false").lower() in {"1", "true", "yes"}
+        default_factory=lambda: os.getenv("ODIN_LLM_EXPOSE_RAW", "false").lower()
+        in {"1", "true", "yes"}
     )
 
     def model_for_role(self, role: str) -> str:
@@ -73,7 +83,9 @@ class LLMSettings:
         except json.JSONDecodeError as exc:
             raise ValueError("OPENAI_PRICING_REGISTRY must be valid JSON.") from exc
         if not isinstance(parsed, dict):
-            raise ValueError("OPENAI_PRICING_REGISTRY must be a JSON object keyed by model.")
+            raise ValueError(
+                "OPENAI_PRICING_REGISTRY must be a JSON object keyed by model."
+            )
         return parsed
 
 

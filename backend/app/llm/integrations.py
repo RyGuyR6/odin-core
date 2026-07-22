@@ -13,11 +13,19 @@ class LLMIntegrationHooks(Protocol):
     def for_tool_calling(self, request: ChatRequest) -> ChatRequest: ...
     def for_conversation_memory(self, request: ChatRequest) -> ChatRequest: ...
 
-    def embedding_for_native_chat(self, request: EmbeddingRequest) -> EmbeddingRequest: ...
+    def embedding_for_native_chat(
+        self, request: EmbeddingRequest
+    ) -> EmbeddingRequest: ...
     def embedding_for_planner(self, request: EmbeddingRequest) -> EmbeddingRequest: ...
-    def embedding_for_repository_context(self, request: EmbeddingRequest) -> EmbeddingRequest: ...
-    def embedding_for_tool_calling(self, request: EmbeddingRequest) -> EmbeddingRequest: ...
-    def embedding_for_conversation_memory(self, request: EmbeddingRequest) -> EmbeddingRequest: ...
+    def embedding_for_repository_context(
+        self, request: EmbeddingRequest
+    ) -> EmbeddingRequest: ...
+    def embedding_for_tool_calling(
+        self, request: EmbeddingRequest
+    ) -> EmbeddingRequest: ...
+    def embedding_for_conversation_memory(
+        self, request: EmbeddingRequest
+    ) -> EmbeddingRequest: ...
 
 
 @dataclass(slots=True)
@@ -43,11 +51,15 @@ class NoopIntegrationHooks:
     def embedding_for_planner(self, request: EmbeddingRequest) -> EmbeddingRequest:
         return request
 
-    def embedding_for_repository_context(self, request: EmbeddingRequest) -> EmbeddingRequest:
+    def embedding_for_repository_context(
+        self, request: EmbeddingRequest
+    ) -> EmbeddingRequest:
         return request
 
     def embedding_for_tool_calling(self, request: EmbeddingRequest) -> EmbeddingRequest:
         return request
 
-    def embedding_for_conversation_memory(self, request: EmbeddingRequest) -> EmbeddingRequest:
+    def embedding_for_conversation_memory(
+        self, request: EmbeddingRequest
+    ) -> EmbeddingRequest:
         return request

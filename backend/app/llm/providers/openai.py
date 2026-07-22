@@ -107,7 +107,9 @@ class OpenAIProvider(LLMProvider):
                 ToolCall(
                     id=getattr(item, "call_id", "") or getattr(item, "id", ""),
                     name=getattr(item, "name", ""),
-                    arguments=OpenAIProvider._parse_arguments(getattr(item, "arguments", "{}")),
+                    arguments=OpenAIProvider._parse_arguments(
+                        getattr(item, "arguments", "{}")
+                    ),
                 )
             )
         return calls
@@ -166,7 +168,10 @@ class OpenAIProvider(LLMProvider):
 
     @staticmethod
     def _is_retryable(error: Exception) -> bool:
-        if isinstance(error, (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)):
+        if isinstance(
+            error,
+            (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError),
+        ):
             return True
         if isinstance(error, APIStatusError):
             return error.status_code in {408, 409, 425, 429} or error.status_code >= 500
@@ -186,14 +191,18 @@ class OpenAIProvider(LLMProvider):
             message = "OpenAI request timed out."
         else:
             message = "OpenAI request failed."
-        raise ProviderRequestError(message, status_code=status_code, retryable=retryable) from error
+        raise ProviderRequestError(
+            message, status_code=status_code, retryable=retryable
+        ) from error
 
     async def chat(self, request: ChatRequest) -> LLMResponse:
         model = request.model or self.settings.model_for_role(request.model_role)
         client = self._client_instance(request.timeout_seconds)
         started = time.perf_counter()
         try:
-            response = await client.responses.create(**self._response_kwargs(request, model))
+            response = await client.responses.create(
+                **self._response_kwargs(request, model)
+            )
         except Exception as exc:
             self._raise_mapped(exc)
         latency = (time.perf_counter() - started) * 1000
@@ -227,7 +236,11 @@ class OpenAIProvider(LLMProvider):
                     )
                 elif event_type == "response.completed":
                     response = getattr(event, "response", None)
-                    finish = getattr(response, "status", "completed") if response else "completed"
+                    finish = (
+                        getattr(response, "status", "completed")
+                        if response
+                        else "completed"
+                    )
                     yield StreamChunk(
                         provider=self.name,
                         model=getattr(response, "model", model) if response else model,
@@ -249,7 +262,11 @@ class OpenAIProvider(LLMProvider):
         latency = (time.perf_counter() - started) * 1000
         usage = getattr(response, "usage", None)
         prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
-        total_tokens = int(getattr(usage, "total_tokens", prompt_tokens) or prompt_tokens) if usage else prompt_tokens
+        total_tokens = (
+            int(getattr(usage, "total_tokens", prompt_tokens) or prompt_tokens)
+            if usage
+            else prompt_tokens
+        )
         data = getattr(response, "data", []) or []
         return EmbeddingResponse(
             provider=self.name,

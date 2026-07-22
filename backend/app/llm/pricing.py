@@ -25,7 +25,9 @@ class PricingRegistry:
             )
         return cls(prices=prices)
 
-    def register(self, model: str, *, input_per_million: float, output_per_million: float) -> None:
+    def register(
+        self, model: str, *, input_per_million: float, output_per_million: float
+    ) -> None:
         self._prices[model] = ModelPrice(
             input_per_million=input_per_million,
             output_per_million=output_per_million,
@@ -34,11 +36,12 @@ class PricingRegistry:
     def get(self, model: str) -> ModelPrice | None:
         return self._prices.get(model)
 
-    def estimate_cost(self, model: str, *, input_tokens: int, output_tokens: int) -> float:
+    def estimate_cost(
+        self, model: str, *, input_tokens: int, output_tokens: int
+    ) -> float:
         price = self.get(model)
         if price is None:
             return 0.0
-        return (
-            (max(0, input_tokens) / 1_000_000.0) * price.input_per_million
-            + (max(0, output_tokens) / 1_000_000.0) * price.output_per_million
-        )
+        return (max(0, input_tokens) / 1_000_000.0) * price.input_per_million + (
+            max(0, output_tokens) / 1_000_000.0
+        ) * price.output_per_million

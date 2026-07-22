@@ -16,7 +16,9 @@ class ChatMessage(BaseModel):
 class ToolFunction(BaseModel):
     name: str
     description: str | None = None
-    parameters: dict[str, Any] = Field(default_factory=lambda: {"type": "object", "properties": {}})
+    parameters: dict[str, Any] = Field(
+        default_factory=lambda: {"type": "object", "properties": {}}
+    )
 
 
 class ToolDefinition(BaseModel):
@@ -69,9 +71,16 @@ class ChatRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     model_role: Literal["primary", "economy"] = "primary"
-    integration_point: Literal[
-        "native_chat", "planner", "repository_context", "tool_calling", "conversation_memory"
-    ] | None = None
+    integration_point: (
+        Literal[
+            "native_chat",
+            "planner",
+            "repository_context",
+            "tool_calling",
+            "conversation_memory",
+        ]
+        | None
+    ) = None
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_tokens: int | None = Field(default=None, ge=1)
     tools: list[ToolDefinition] = Field(default_factory=list)
@@ -99,9 +108,16 @@ class EmbeddingRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     model_role: Literal["embedding"] = "embedding"
-    integration_point: Literal[
-        "native_chat", "planner", "repository_context", "tool_calling", "conversation_memory"
-    ] | None = None
+    integration_point: (
+        Literal[
+            "native_chat",
+            "planner",
+            "repository_context",
+            "tool_calling",
+            "conversation_memory",
+        ]
+        | None
+    ) = None
     timeout_seconds: float | None = Field(default=None, gt=0)
 
 

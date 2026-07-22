@@ -5,7 +5,11 @@ import time
 from collections.abc import AsyncIterator
 
 from .config import LLMSettings, get_llm_settings
-from .exceptions import AllProvidersFailedError, ProviderConfigurationError, ProviderRequestError
+from .exceptions import (
+    AllProvidersFailedError,
+    ProviderConfigurationError,
+    ProviderRequestError,
+)
 from .integrations import LLMIntegrationHooks, NoopIntegrationHooks
 from .models import (
     ChatMessage,
@@ -88,14 +92,18 @@ class LLMService:
     def _routed_chat_request(self, request: ChatRequest) -> ChatRequest:
         provider = self._provider_name(request.provider)
         if request.timeout_seconds is None:
-            request = request.model_copy(update={"timeout_seconds": self.settings.timeout_seconds})
+            request = request.model_copy(
+                update={"timeout_seconds": self.settings.timeout_seconds}
+            )
         model = request.model or self.settings.model_for_role(request.model_role)
         return request.model_copy(update={"provider": provider, "model": model})
 
     def _routed_embedding_request(self, request: EmbeddingRequest) -> EmbeddingRequest:
         provider = self._provider_name(request.provider)
         if request.timeout_seconds is None:
-            request = request.model_copy(update={"timeout_seconds": self.settings.timeout_seconds})
+            request = request.model_copy(
+                update={"timeout_seconds": self.settings.timeout_seconds}
+            )
         model = request.model or self.settings.model_for_role(request.model_role)
         return request.model_copy(update={"provider": provider, "model": model})
 
@@ -142,7 +150,9 @@ class LLMService:
         routed = self._routed_chat_request(request)
         provider = self.registry.get(routed.provider or self.settings.default_provider)
         if not provider.configured:
-            raise ProviderConfigurationError("OPENAI_API_KEY is required to use chat completions.")
+            raise ProviderConfigurationError(
+                "OPENAI_API_KEY is required to use chat completions."
+            )
         started = time.perf_counter()
         try:
             response = await self._retry(lambda: provider.chat(routed))
@@ -169,7 +179,9 @@ class LLMService:
                 success=False,
                 error_type=type(exc).__name__,
             )
-            raise AllProvidersFailedError({routed.provider or "openai": str(exc)}) from exc
+            raise AllProvidersFailedError(
+                {routed.provider or "openai": str(exc)}
+            ) from exc
 
     async def complete(self, request: CompletionRequest) -> LLMResponse:
         messages: list[ChatMessage] = []
@@ -194,7 +206,9 @@ class LLMService:
         routed = self._routed_chat_request(request)
         provider = self.registry.get(routed.provider or self.settings.default_provider)
         if not provider.configured:
-            raise ProviderConfigurationError("OPENAI_API_KEY is required to use streaming.")
+            raise ProviderConfigurationError(
+                "OPENAI_API_KEY is required to use streaming."
+            )
         started = time.perf_counter()
         emitted = False
         try:
@@ -223,9 +237,13 @@ class LLMService:
                 success=False,
                 error_type=type(exc).__name__,
             )
-            raise AllProvidersFailedError({routed.provider or "openai": str(exc)}) from exc
+            raise AllProvidersFailedError(
+                {routed.provider or "openai": str(exc)}
+            ) from exc
 
-    async def _retry_stream(self, provider, request: ChatRequest) -> AsyncIterator[StreamChunk]:
+    async def _retry_stream(
+        self, provider, request: ChatRequest
+    ) -> AsyncIterator[StreamChunk]:
         retries = max(0, self.settings.max_retries)
         for attempt in range(retries + 1):
             try:
@@ -242,7 +260,9 @@ class LLMService:
         routed = self._routed_embedding_request(request)
         provider = self.registry.get(routed.provider or self.settings.default_provider)
         if not provider.configured:
-            raise ProviderConfigurationError("OPENAI_API_KEY is required to generate embeddings.")
+            raise ProviderConfigurationError(
+                "OPENAI_API_KEY is required to generate embeddings."
+            )
         started = time.perf_counter()
         try:
             response = await self._retry(lambda: provider.embeddings(routed))
@@ -267,14 +287,20 @@ class LLMService:
                 success=False,
                 error_type=type(exc).__name__,
             )
-            raise AllProvidersFailedError({routed.provider or "openai": str(exc)}) from exc
+            raise AllProvidersFailedError(
+                {routed.provider or "openai": str(exc)}
+            ) from exc
 
     async def providers(self) -> list[ProviderHealth]:
-        return await asyncio.gather(*(provider.health() for provider in self.registry.all()))
+        return await asyncio.gather(
+            *(provider.health() for provider in self.registry.all())
+        )
 
     async def models(self, provider: str | None = None) -> list[ModelInfo]:
         providers = [self.registry.get(provider)] if provider else self.registry.all()
-        groups = await asyncio.gather(*(item.models() for item in providers), return_exceptions=True)
+        groups = await asyncio.gather(
+            *(item.models() for item in providers), return_exceptions=True
+        )
         result: list[ModelInfo] = []
         for group in groups:
             if isinstance(group, list):

@@ -14,10 +14,14 @@ router = APIRouter(prefix="/llm", tags=["llm"])
 
 def _raise_http(exc: Exception) -> None:
     if isinstance(exc, AllProvidersFailedError):
-        raise HTTPException(status_code=503, detail={"message": str(exc), "providers": exc.errors}) from exc
+        raise HTTPException(
+            status_code=503, detail={"message": str(exc), "providers": exc.errors}
+        ) from exc
     if isinstance(exc, LLMError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    raise HTTPException(status_code=500, detail="Unexpected LLM subsystem error.") from exc
+    raise HTTPException(
+        status_code=500, detail="Unexpected LLM subsystem error."
+    ) from exc
 
 
 @router.get("/providers")
