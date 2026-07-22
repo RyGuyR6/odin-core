@@ -9,6 +9,7 @@ import {
   FolderGit2,
   LayoutDashboard,
   Menu,
+  MessageSquare,
   Settings,
   X,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import { BackendStatus } from "@/components/status/backend-status";
 
 const navigation = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/tasks", label: "Tasks", icon: Bot },
   { href: "/repositories", label: "Repositories", icon: FolderGit2 },
   { href: "/activity", label: "Activity", icon: Activity },
@@ -66,8 +68,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
         <NavLinks />
         <div className="mt-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
-          <p className="font-medium text-white">OW-002</p>
-          <p className="mt-1">Application shell online</p>
+          <p className="font-medium text-white">OW-007</p>
+          <p className="mt-1">Native AI Chat</p>
         </div>
       </aside>
 
