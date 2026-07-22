@@ -5,10 +5,8 @@ import re
 from typing import Any
 
 from app.planning.models import ExecutionPlan
-from app.services.repository_intelligence import (
-    RepositoryScanRecord,
-    repository_intelligence_service,
-)
+from app.services.repository_context import repository_context_service
+from app.services.repository_intelligence import RepositoryScanRecord, repository_intelligence_service
 
 STOPWORDS = {
     "a",
@@ -68,18 +66,32 @@ class Planner:
 
         terms = self._goal_terms(goal)
         candidates = self._candidate_files(scan, terms)
+        context_package = repository_context_service.get_context(repository, goal)
         metadata["phases"] = self._phase_sequence(terms, scan, candidates)
-        metadata["candidate_files"] = candidates
+        metadata["candidate_files"] = (
+            [
+                {
+                    "path": item.path,
+                    "score": item.score,
+                    "reasons": [item.match_type, *(["symbol"] if item.symbol else [])],
+                }
+                for item in context_package.relevant_files
+            ]
+            or candidates
+        )
         metadata["repository"] = {
             "full_name": repository,
             "status": scan.status,
             "local_path": scan.local_path,
         }
-        metadata["repository_context"] = repository_intelligence_service.render_repository_context(
-            repository
-        )
-        metadata["repository_summary"] = scan.payload.summary.model_dump(mode="json")
-        if not candidates:
+        metadata["repository_context"] = repository_context_service.render(context_package)
+        metadata["repository_summary"] = context_package.repository_summary
+        metadata["repository_package"] = context_package.model_dump(mode="json")
+        metadata["affected_symbols"] = context_package.relevant_symbols
+        metadata["dependencies"] = context_package.dependency_relationships
+        metadata["likely_tests"] = context_package.tests
+        metadata["notes"] = context_package.notes or metadata["notes"]
+        if not metadata["candidate_files"]:
             metadata["notes"] = [
                 "Repository intelligence is available, but no candidate files matched the goal terms.",
             ]

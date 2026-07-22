@@ -16,12 +16,18 @@ import { ChatInput } from "@/components/chat/chat-input";
 
 const MAX_AUTO_TITLE_LENGTH = 80;
 
+type RepositoryOption = {
+  full_name: string;
+};
+
 export default function ChatPage() {
   const [conversations, setConversations] = useState<ConversationRecord[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [input, setInput] = useState("");
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [repositories, setRepositories] = useState<RepositoryOption[]>([]);
+  const [selectedRepository, setSelectedRepository] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -42,9 +48,26 @@ export default function ChatPage() {
     }
   }, []);
 
+  const refreshRepositories = useCallback(async () => {
+    try {
+      const response = await fetch("/api/repositories", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!response.ok) return;
+      const payload = (await response.json()) as {
+        repositories?: RepositoryOption[];
+      };
+      setRepositories(payload.repositories ?? []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     const id = window.setTimeout(() => {
       void refreshConversations();
+      void refreshRepositories();
     }, 0);
     return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,6 +85,12 @@ export default function ChatPage() {
     try {
       const msgs = await listMessages(id);
       setMessages(msgs);
+      const conversation = conversations.find((item) => item.id === id);
+      const repository =
+        typeof conversation?.metadata?.repository === "string"
+          ? conversation.metadata.repository
+          : "";
+      setSelectedRepository(repository);
     } catch {
       setError("Could not load messages.");
     } finally {
@@ -75,6 +104,7 @@ export default function ChatPage() {
     setInput("");
     setError("");
     setStreamingContent(null);
+    setSelectedRepository("");
   }
 
   async function sendMessage(content: string = input.trim()) {
@@ -90,7 +120,12 @@ export default function ChatPage() {
       try {
         const conv = await createConversation({
           title: content.slice(0, MAX_AUTO_TITLE_LENGTH),
-          metadata: { source: "odin-web-ow007" },
+          metadata: {
+            source: "odin-web-ow007",
+            ...(selectedRepository
+              ? { repository: selectedRepository }
+              : {}),
+          },
         });
         conversationId = conv.id;
         setActiveId(conv.id);
@@ -129,7 +164,10 @@ export default function ChatPage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({
+            content,
+            repository: selectedRepository || undefined,
+          }),
           signal: controller.signal,
         },
       );
@@ -298,6 +336,24 @@ export default function ChatPage() {
                 {conversations.find((c) => c.id === activeId)?.message_count ?? 0} messages
               </span>
             </div>
+          )}
+
+          {repositories.length > 0 && (
+            <label className="ml-auto flex items-center gap-2 text-xs text-zinc-400">
+              <span>Repository</span>
+              <select
+                value={selectedRepository}
+                onChange={(event) => setSelectedRepository(event.target.value)}
+                className="rounded-lg border border-[var(--border)] bg-[rgba(8,11,18,0.82)] px-2 py-1 text-xs text-zinc-200"
+              >
+                <option value="">None</option>
+                {repositories.map((repository) => (
+                  <option key={repository.full_name} value={repository.full_name}>
+                    {repository.full_name}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
         </div>
 
