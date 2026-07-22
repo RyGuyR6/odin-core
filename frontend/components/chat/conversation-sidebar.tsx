@@ -191,7 +191,7 @@ export function ConversationSidebar({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto space-y-1 pr-0.5">
+      <div className="flex-1 overflow-y-auto space-y-1 pr-0.5" role="list" aria-label="Conversations">
         {loading && (
           <div className="space-y-2 pt-2">
             {[1, 2, 3].map((i) => (

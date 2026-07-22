@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -22,6 +23,8 @@ from app.conversations.models import (
     SessionCreate,
 )
 from app.services.chat_service import get_chat_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 sessions_router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -209,6 +212,7 @@ async def stream_message(conversation_id: str, request: StreamMessageRequest):
                 yield f"data: {json.dumps({'delta': chunk.delta, 'done': chunk.done, 'model': chunk.model})}\n\n"
             yield f"data: {json.dumps({'delta': '', 'done': True})}\n\n"
         except Exception:
+            logger.exception("Streaming reply failed for conversation %s", conversation_id)
             yield f"event: error\ndata: {json.dumps({'error': 'Stream generation failed. Please try again.', 'done': True})}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")

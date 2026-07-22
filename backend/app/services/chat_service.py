@@ -7,6 +7,9 @@ from app.conversations.models import MessageCreate, ConversationCreate
 from app.llm.models import ChatRequest, StreamChunk
 from app.llm.service import LLMService, get_llm_service
 
+# Maximum characters from the first user message used to build an auto-title prompt.
+_AUTO_TITLE_MESSAGE_MAX_LENGTH = 500
+
 
 class ChatService:
     """Provider-independent chat service built on OIC-008.
@@ -169,7 +172,7 @@ class ChatService:
         prompt_text = (
             "Summarize the following message as a short 4-6 word chat title. "
             "Reply with only the title, no punctuation at the end.\n\n"
-            f"Message: {first_content[:500]}"
+            f"Message: {first_content[:_AUTO_TITLE_MESSAGE_MAX_LENGTH]}"
         )
         from app.llm.models import ChatMessage
 

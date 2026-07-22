@@ -56,7 +56,7 @@ export function ChatInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={
-          isStreaming ? "Odin is thinking…" : "Ask Odin to create, inspect, plan, or explain… (⌘↵ to send)"
+          isStreaming ? "Odin is thinking…" : "Ask Odin to create, inspect, plan, or explain… (Enter to send)"
         }
         disabled={isStreaming || disabled}
         rows={1}

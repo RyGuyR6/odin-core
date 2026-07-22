@@ -14,6 +14,8 @@ import { ConversationSidebar } from "@/components/chat/conversation-sidebar";
 import { MessageBubble, StreamingBubble } from "@/components/chat/message-bubble";
 import { ChatInput } from "@/components/chat/chat-input";
 
+const MAX_AUTO_TITLE_LENGTH = 80;
+
 export default function ChatPage() {
   const [conversations, setConversations] = useState<ConversationRecord[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -87,7 +89,7 @@ export default function ChatPage() {
     if (!conversationId) {
       try {
         const conv = await createConversation({
-          title: content.slice(0, 80),
+          title: content.slice(0, MAX_AUTO_TITLE_LENGTH),
           metadata: { source: "odin-web-ow007" },
         });
         conversationId = conv.id;
@@ -167,9 +169,11 @@ export default function ChatPage() {
               break;
             }
           } catch (parseErr) {
-            // Silently skip unparseable SSE lines; rethrow real errors
+            // Silently skip unparseable SSE lines; rethrow unexpected errors with context
             if (!(parseErr instanceof SyntaxError)) {
-              throw parseErr;
+              throw new Error(
+                `SSE event processing error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+              );
             }
           }
         }
