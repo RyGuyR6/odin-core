@@ -65,8 +65,12 @@ class Planner:
 
         metadata["repository"] = {"full_name": repository}
         scan = repository_intelligence_service.get_scan(repository)
-        if scan is None or scan.status != "ready" or scan.payload is None:
-            metadata["repository"]["status"] = scan.status if scan else "unavailable"
+        if scan is None:
+            metadata["repository"]["status"] = "unavailable"
+            metadata["notes"] = [f"Repository intelligence is not ready for {repository}."]
+            return metadata
+        if scan.status != "ready" or scan.payload is None:
+            metadata["repository"]["status"] = scan.status
             metadata["notes"] = [f"Repository intelligence is not ready for {repository}."]
             return metadata
 
@@ -139,17 +143,7 @@ class Planner:
                 reasons[path].append(reason)
 
         for symbol in payload.symbols:
-            haystack = " ".join(
-                value
-                for value in (
-                    symbol.name,
-                    symbol.qualified_name,
-                    symbol.module,
-                    symbol.container,
-                    symbol.file_path,
-                )
-                if value
-            ).lower()
+            haystack = self._symbol_match_text(symbol)
             matched = sorted(term for term in terms if term in haystack)
             if matched:
                 add(
@@ -181,16 +175,43 @@ class Planner:
 
         ranked = sorted(
             (
-                {
-                    "path": path,
-                    "score": round(score, 2),
-                    "reasons": reasons[path],
-                }
+                self._candidate_entry(
+                    path=path,
+                    score=score,
+                    reasons=reasons[path],
+                )
                 for path, score in scores.items()
             ),
             key=lambda item: (-item["score"], item["path"]),
         )
         return ranked[:MAX_CANDIDATE_FILES]
+
+    @staticmethod
+    def _symbol_match_text(symbol: Any) -> str:
+        return " ".join(
+            value
+            for value in (
+                symbol.name,
+                symbol.qualified_name,
+                symbol.module,
+                symbol.container,
+                symbol.file_path,
+            )
+            if value
+        ).lower()
+
+    @staticmethod
+    def _candidate_entry(
+        *,
+        path: str,
+        score: float,
+        reasons: list[str],
+    ) -> dict[str, Any]:
+        return {
+            "path": path,
+            "score": round(score, 2),
+            "reasons": reasons,
+        }
 
 
 planner = Planner()
