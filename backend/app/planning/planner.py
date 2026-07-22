@@ -27,6 +27,8 @@ STOPWORDS = {
 }
 FRONTEND_TERMS = {"component", "frontend", "page", "route", "ui"}
 BACKEND_TERMS = {"api", "backend", "endpoint", "service", "worker"}
+FRONTEND_FRAMEWORKS = {"next.js", "react"}
+BACKEND_FRAMEWORKS = {"fastapi"}
 
 
 class Planner:
@@ -105,9 +107,9 @@ class Planner:
             "identify_candidate_files",
         ]
         frameworks = {framework.lower() for framework in scan.payload.summary.frameworks}
-        if terms & FRONTEND_TERMS and {"next.js", "react"} & frameworks:
+        if terms & FRONTEND_TERMS and FRONTEND_FRAMEWORKS & frameworks:
             phases.append("review_frontend_surface")
-        if terms & BACKEND_TERMS and "fastapi" in frameworks:
+        if terms & BACKEND_TERMS and BACKEND_FRAMEWORKS & frameworks:
             phases.append("review_backend_surface")
         if candidates:
             phases.append("prioritize_candidate_files")

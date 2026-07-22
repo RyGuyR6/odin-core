@@ -18,7 +18,7 @@ class PlanExecutor:
         else:
             context = context_service.create(
                 goal=plan.goal,
-                variables=dict(getattr(plan, "metadata", {}) or {}),
+                variables=dict(plan.metadata),
             )
 
         context.set_status("running")
