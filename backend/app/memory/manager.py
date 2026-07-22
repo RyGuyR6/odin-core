@@ -116,7 +116,8 @@ class MemoryManager:
             sem=cosine_similarity(query_vector,json.loads(row["embedding_json"])) if query_vector else 0.0
             kw=keyword_similarity(request.query," ".join([row["title"] or "",row["chunk_content"]," ".join(json.loads(row["tags_json"]))]))
             base_score=combine_scores(sem,kw,request.mode)
-            # Blend base score with importance so higher-importance memories rank higher
+            # Blend base score with importance (75% relevance, 25% importance) so
+            # high-importance memories rank above equally relevant but lower-importance ones.
             importance=float(row["importance"]) if "importance" in row.keys() and row["importance"] is not None else 0.5
             score=base_score*0.75 + importance*0.25
             if score < request.min_score: continue

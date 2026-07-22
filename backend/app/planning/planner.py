@@ -11,6 +11,9 @@ from app.services.repository_intelligence import RepositoryScanRecord, repositor
 
 log = logging.getLogger(__name__)
 
+# Phase name constant — used in plan metadata to signal memory retrieval occurred
+PHASE_RETRIEVE_MEMORY_CONTEXT = "retrieve_memory_context"
+
 STOPWORDS = {
     "a",
     "an",
@@ -106,7 +109,7 @@ class Planner:
         context_package = repository_context_service.get_context(repository, goal)
         metadata["phases"] = self._phase_sequence(terms, scan, candidates)
         if metadata["memory_context"]:
-            metadata["phases"] = ["retrieve_memory_context"] + metadata["phases"]
+            metadata["phases"] = [PHASE_RETRIEVE_MEMORY_CONTEXT] + metadata["phases"]
         metadata["candidate_files"] = (
             [
                 {

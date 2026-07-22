@@ -81,7 +81,11 @@ class MemoryStore:
         cols = {row[1] for row in db.execute("PRAGMA table_info(memories)")}
         for col, col_def in _ALLOWED_ADDITIONS:
             if col not in cols:
-                # col and col_def come from a hardcoded tuple above — not user input
+                # col and col_def are values from _ALLOWED_ADDITIONS (hardcoded above),
+                # not user input — parameterized DDL is not supported by SQLite ALTER TABLE
+                allowed_cols = {name for name, _ in _ALLOWED_ADDITIONS}
+                if col not in allowed_cols:  # guard against future misuse
+                    raise ValueError(f"Column '{col}' is not in the allowed additions list")
                 db.execute(f"ALTER TABLE memories ADD COLUMN {col} {col_def}")
         # Ensure new indexes exist
         try:

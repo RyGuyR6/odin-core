@@ -247,6 +247,8 @@ export default function MemoryPage() {
   }, [selected, load]);
 
   const displayItems = searchResults ?? memories;
+  // Build a lookup map to avoid O(n²) find() inside the render loop below
+  const memoryById = useMemo(() => new Map(memories.map((m) => [m.id, m])), [memories]);
   const kindOptions = useMemo(() => Object.entries(KIND_LABELS), []);
 
   return (
@@ -369,7 +371,7 @@ export default function MemoryPage() {
             <div className="group space-y-3">
               {displayItems.map((item) => {
                 const id = "memory_id" in item ? item.memory_id : item.id;
-                const rec = memories.find((m) => m.id === id);
+                const rec = memoryById.get(id);
                 return (
                   <MemoryCard
                     key={id}
