@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Any
 
-from app.planning.models import ExecutionPlan
+from app.planning.models import ExecutionPlan, PlanStep
 from app.services.repository_context import repository_context_service
 from app.services.repository_intelligence import RepositoryScanRecord, repository_intelligence_service
 
@@ -240,6 +240,84 @@ class Planner:
             key=lambda item: (-item["score"], item["path"]),
         )
         return ranked[:5]
+
+    async def create_ai_plan(
+        self,
+        goal: str,
+        repository: str | None = None,
+        profile: str | None = None,
+    ) -> ExecutionPlan:
+        """Generate an AI-powered execution plan using the LLM platform.
+
+        Builds the same static metadata as create_plan() for context, then
+        calls the LLM with structured output enabled to produce a machine-
+        readable plan.  The planner never calls OpenAI directly — all
+        requests go through LLMService.
+        """
+        from app.llm.service import get_llm_service  # noqa: PLC0415
+        from app.llm.models import ChatMessage, ChatRequest  # noqa: PLC0415
+
+        plan = ExecutionPlan(goal=goal.strip())
+        plan.metadata = self._build_metadata(plan.goal, repository)
+
+        service = get_llm_service()
+        repo_context = plan.metadata.get("repository_context") or ""
+        memory_context = plan.metadata.get("memory_context") or []
+        memory_block = ""
+        if memory_context:
+            memory_block = "\n\nRelevant memories:\n" + "\n".join(
+                f"- [{m.get('kind', '?')}] {m.get('title', '')}: {m.get('content', '')[:300]}"
+                for m in memory_context[:5]
+            )
+
+        system_prompt = (
+            "You are Odin, an AI software engineering assistant. "
+            "Generate a structured execution plan as a JSON object with the following schema:\n"
+            '{"phases": ["string"], "steps": [{"tool": "string", "description": "string", '
+            '"parameters": {}}], "notes": ["string"], "candidate_files": ["string"]}\n'
+            "Be concise. Focus on actionable steps."
+        )
+        user_message = f"Goal: {goal}"
+        if repo_context:
+            user_message += f"\n\nRepository context:\n{repo_context[:4000]}"
+        if memory_block:
+            user_message += memory_block
+
+        try:
+            response = await service.chat(
+                ChatRequest(
+                    messages=[
+                        ChatMessage(role="system", content=system_prompt),
+                        ChatMessage(role="user", content=user_message),
+                    ],
+                    integration_point="planner",
+                    task_type="planning",
+                    execution_profile=profile,  # type: ignore[arg-type]
+                    response_format={"type": "json_object"},
+                )
+            )
+            import json as _json  # noqa: PLC0415
+            ai_output = _json.loads(response.content)
+            # Merge AI output into plan metadata
+            for key in ("phases", "notes", "candidate_files"):
+                if key in ai_output and isinstance(ai_output[key], list):
+                    plan.metadata[key] = ai_output[key]
+            if "steps" in ai_output and isinstance(ai_output["steps"], list):
+                for step_data in ai_output["steps"]:
+                    if isinstance(step_data, dict):
+                        plan.steps.append(
+                            PlanStep(
+                                tool=step_data.get("tool", "unknown"),
+                                parameters=step_data.get("parameters", {}),
+                            )
+                        )
+            plan.metadata["ai_generated"] = True
+            plan.metadata["ai_model"] = response.model
+        except Exception:
+            log.debug("AI plan generation failed; returning static plan", exc_info=True)
+            plan.metadata["ai_generated"] = False
+
+        return plan
 
 
 planner = Planner()

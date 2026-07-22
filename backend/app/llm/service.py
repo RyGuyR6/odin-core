@@ -17,10 +17,12 @@ from .models import (
     CompletionRequest,
     EmbeddingRequest,
     EmbeddingResponse,
+    ExecutionProfile,
     LLMResponse,
     ModelInfo,
     ProviderHealth,
     StreamChunk,
+    TaskType,
     UsageRecord,
 )
 from .pricing import PricingRegistry
@@ -95,7 +97,18 @@ class LLMService:
             request = request.model_copy(
                 update={"timeout_seconds": self.settings.timeout_seconds}
             )
-        model = request.model or self.settings.model_for_role(request.model_role)
+        # Model resolution order:
+        # 1. Explicit model on request
+        # 2. task_type + execution_profile routing
+        # 3. model_role fallback
+        if request.model:
+            model = request.model
+        elif request.task_type is not None:
+            model = self.settings.model_for_task(
+                request.task_type, request.execution_profile
+            )
+        else:
+            model = self.settings.model_for_role(request.model_role)
         return request.model_copy(update={"provider": provider, "model": model})
 
     def _routed_embedding_request(self, request: EmbeddingRequest) -> EmbeddingRequest:
@@ -306,6 +319,197 @@ class LLMService:
             if isinstance(group, list):
                 result.extend(group)
         return result
+
+    def route_model(
+        self,
+        task_type: TaskType | str | None,
+        profile: ExecutionProfile | str | None = None,
+    ) -> str:
+        """Return the model name for a given task type and execution profile."""
+        return self.settings.model_for_task(task_type, profile)
+
+    async def test_connection(self) -> dict:
+        """Verify connectivity and API key validity without hardcoding any model.
+
+        Uses models.list() to validate the key.  Reports which configured
+        models are and are not available, without failing if a specific model
+        is absent.
+        """
+        provider = self.registry.get(self.settings.default_provider)
+        if not provider.configured:
+            return {
+                "success": False,
+                "message": (
+                    "OpenAI API key not configured. "
+                    "AI functionality is unavailable until a valid API key is provided."
+                ),
+                "auth_status": "missing_key",
+            }
+
+        health = await provider.health()
+        if not health.available:
+            detail = health.error or "Connection failed."
+            return {
+                "success": False,
+                "message": detail,
+                "auth_status": health.auth_status,
+            }
+
+        # Attempt to retrieve model availability for configured models
+        model_status: dict[str, bool | None] = {}
+        try:
+            from .providers.openai import OpenAIProvider  # noqa: PLC0415
+            if isinstance(provider, OpenAIProvider):
+                live = await provider._fetch_live_models()
+                if live is not None:
+                    live_set = set(live)
+                    for role, model in [
+                        ("primary", self.settings.primary_model),
+                        ("balanced", self.settings.balanced_model),
+                        ("economy", self.settings.economy_model),
+                        ("embedding", self.settings.embedding_model),
+                    ]:
+                        model_status[f"{role}_model"] = model in live_set
+                else:
+                    model_status["note"] = "Live model list unavailable"  # type: ignore[assignment]
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "message": "OpenAI connection verified.",
+            "auth_status": health.auth_status,
+            "latency_ms": health.latency_ms,
+            "configured_model_status": model_status,
+        }
+
+    async def diagnostics(self) -> dict:
+        """Return a structured diagnostic snapshot of the AI platform."""
+        statuses = await self.providers()
+        usage = self.usage_summary()
+        config = {
+            "default_provider": self.settings.default_provider,
+            "default_execution_profile": self.settings.default_execution_profile,
+            "primary_model": self.settings.primary_model,
+            "balanced_model": self.settings.balanced_model,
+            "economy_model": self.settings.economy_model,
+            "embedding_model": self.settings.embedding_model,
+            "timeout_seconds": self.settings.timeout_seconds,
+            "max_retries": self.settings.max_retries,
+        }
+        task_model_map = {
+            task: self.settings.model_for_task(task, self.settings.default_execution_profile)
+            for task in [
+                "chat", "planning", "code_generation", "debugging",
+                "documentation", "memory_summarization", "repair",
+                "large_context_analysis", "repository_search",
+            ]
+        }
+
+        # Collect configured model warnings from OpenAI provider
+        configured_model_warnings: list[str] = []
+        try:
+            from .providers.openai import OpenAIProvider  # noqa: PLC0415
+            provider = self.registry.get(self.settings.default_provider)
+            if isinstance(provider, OpenAIProvider):
+                live = await provider._fetch_live_models()
+                configured_model_warnings = provider._configured_model_warnings(live)
+        except Exception:
+            pass
+
+        provider_statuses = [s.model_dump() for s in statuses]
+        available = any(s.available for s in statuses)
+
+        return {
+            "status": "ok" if available else "degraded",
+            "providers": provider_statuses,
+            "configuration": config,
+            "task_model_routing": task_model_map,
+            "capabilities": {
+                "streaming_available": available,
+                "tool_calling_available": available,
+                "structured_output_available": available,
+            },
+            "usage_summary": usage,
+            "configured_model_warnings": configured_model_warnings,
+        }
+
+    async def chat_with_tools(
+        self,
+        request: ChatRequest,
+        tool_names: list[str],
+        *,
+        max_tool_rounds: int = 5,
+        actor_id: str = "llm-platform",
+        conversation_id: str | None = None,
+    ) -> LLMResponse:
+        """Perform a multi-turn tool-calling conversation using OIC-009 tools.
+
+        Resolves tool definitions from the OIC-009 registry, sends them to
+        the LLM, executes any requested tool calls server-side, and continues
+        until the model produces a final non-tool response or max_tool_rounds
+        is reached.
+
+        Args:
+            request:        Initial chat request (tools field will be populated
+                            from tool_names; do not set it manually).
+            tool_names:     Names of OIC-009 registered tools to expose.
+            max_tool_rounds: Maximum number of tool execution rounds.
+            actor_id:       Actor identifier forwarded to OIC-009 audit log.
+            conversation_id: Optional conversation context for audit log.
+
+        Raises:
+            ValueError: if any tool_name is not registered in OIC-009.
+        """
+        from .tool_adapter import get_tool_adapter  # noqa: PLC0415
+
+        adapter = get_tool_adapter()
+        llm_tool_defs = adapter.get_llm_definitions(tool_names)
+
+        # Inject tool definitions into the request
+        active_request = request.model_copy(
+            update={
+                "tools": llm_tool_defs,
+                "integration_point": "tool_calling",
+            }
+        )
+
+        messages = list(active_request.messages)
+
+        for _round in range(max_tool_rounds):
+            response = await self.chat(active_request.model_copy(update={"messages": messages}))
+
+            if not response.tool_calls:
+                return response
+
+            # Append assistant message with tool calls
+            messages.append(
+                ChatMessage(
+                    role="assistant",
+                    content=response.content or "",
+                )
+            )
+
+            # Execute tool calls through OIC-009 and append results
+            results = await adapter.execute_all(
+                response.tool_calls,
+                actor_id=actor_id,
+                conversation_id=conversation_id,
+            )
+            for result in results:
+                messages.append(
+                    ChatMessage(
+                        role="tool",
+                        name=result["name"],
+                        tool_call_id=result["tool_call_id"],
+                        content=result["content"],
+                    )
+                )
+
+        # Final call without tools to get a conclusion
+        return await self.chat(
+            active_request.model_copy(update={"messages": messages, "tools": []})
+        )
 
     async def health(self) -> dict:
         statuses = await self.providers()
