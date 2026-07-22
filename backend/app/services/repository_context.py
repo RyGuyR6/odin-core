@@ -162,9 +162,7 @@ class RepositoryContextService:
             notes=notes,
             token_estimate=token_estimate,
             metrics={
-                "context_latency_ms": round(
-                    (time.perf_counter() - started) * 1000, 3
-                ),
+                "context_latency_ms": round((time.perf_counter() - started) * 1000, 3),
                 "search_latency_ms": (
                     search.get("metrics", {}).get("search_latency_ms")
                     if isinstance(search.get("metrics"), dict)

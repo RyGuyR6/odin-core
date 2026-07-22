@@ -706,7 +706,9 @@ class RepositoryIntelligenceService:
                 "count": 0,
                 "stale": True,
                 "metrics": {
-                    "search_latency_ms": round((time.perf_counter() - started) * 1000, 3),
+                    "search_latency_ms": round(
+                        (time.perf_counter() - started) * 1000, 3
+                    ),
                     "semantic_ranking_applied": False,
                 },
             }
@@ -1172,7 +1174,11 @@ class RepositoryIntelligenceService:
         parsed: ParsedRepositoryDocument | None = None,
     ) -> AnalysisResult:
         try:
-            tree = parsed.tree if parsed is not None else ast.parse(text, filename=entry.path)
+            tree = (
+                parsed.tree
+                if parsed is not None
+                else ast.parse(text, filename=entry.path)
+            )
         except SyntaxError:
             return AnalysisResult(
                 symbols=[],

@@ -254,7 +254,7 @@ describe("RepositoriesPage", () => {
     await userEvent.selectOptions(screen.getByLabelText("Symbol type"), "function");
     await userEvent.selectOptions(screen.getByLabelText("Documentation"), "false");
     await userEvent.type(screen.getByPlaceholderText("Search files, symbols, docs"), "health");
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Search" })[0]);
 
     expect(await screen.findByText("Search latency: 12.5 ms")).toBeInTheDocument();
     expect(screen.getByText("Semantic ranking: applied")).toBeInTheDocument();

@@ -198,55 +198,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     try {
       const payload = (await response.json()) as { detail?: string };
       if (payload.detail) detail = payload.detail;
-    } catch {}
+    } catch {    }
     throw new Error(detail);
-  }
-
-  async function startIndexingSelectedRepository(mode: "index" | "reindex") {
-    if (!selected) return;
-    setIndexing(true);
-    setError("");
-    try {
-      const result = await request<ScanResponse>(`/${selected}/${mode}`, {
-        method: "POST",
-        body: JSON.stringify({ local_path: localPath || undefined }),
-      });
-      setStatus((current) =>
-        current
-          ? {
-              ...current,
-              intelligence: {
-                ...current.intelligence,
-                status: result.status,
-                local_path: result.local_path ?? localPath,
-              },
-            }
-          : current,
-      );
-      await load();
-      await loadDetails(selected);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to start repository indexing");
-    } finally {
-      setIndexing(false);
-    }
-  }
-
-  async function cancelSelectedRepositoryIndexing() {
-    if (!selected) return;
-    setCancellingIndex(true);
-    setError("");
-    try {
-      await request<ScanResponse>(`/${selected}/cancel-indexing`, {
-        method: "POST",
-      });
-      await load();
-      await loadDetails(selected);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to cancel repository indexing");
-    } finally {
-      setCancellingIndex(false);
-    }
   }
 
   if (response.status === 204) return undefined as T;
@@ -569,6 +522,53 @@ export default function RepositoriesPage() {
       setError(reason instanceof Error ? reason.message : "Unable to scan repository");
     } finally {
       setScanning(false);
+    }
+  }
+
+  async function startIndexingSelectedRepository(mode: "index" | "reindex") {
+    if (!selected) return;
+    setIndexing(true);
+    setError("");
+    try {
+      const result = await request<ScanResponse>(`/${selected}/${mode}`, {
+        method: "POST",
+        body: JSON.stringify({ local_path: localPath || undefined }),
+      });
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              intelligence: {
+                ...current.intelligence,
+                status: result.status,
+                local_path: result.local_path ?? localPath,
+              },
+            }
+          : current,
+      );
+      await load();
+      await loadDetails(selected);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to start repository indexing");
+    } finally {
+      setIndexing(false);
+    }
+  }
+
+  async function cancelSelectedRepositoryIndexing() {
+    if (!selected) return;
+    setCancellingIndex(true);
+    setError("");
+    try {
+      await request<ScanResponse>(`/${selected}/cancel-indexing`, {
+        method: "POST",
+      });
+      await load();
+      await loadDetails(selected);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to cancel repository indexing");
+    } finally {
+      setCancellingIndex(false);
     }
   }
 
