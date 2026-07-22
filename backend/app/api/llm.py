@@ -38,6 +38,16 @@ async def llm_health():
     return await get_llm_service().health()
 
 
+@router.get("/usage")
+async def llm_usage(limit: int = Query(default=100, ge=1, le=1000)):
+    return get_llm_service().usage_records(limit=limit)
+
+
+@router.get("/usage/summary")
+async def llm_usage_summary():
+    return get_llm_service().usage_summary()
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest):
     try:
