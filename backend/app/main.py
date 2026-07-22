@@ -12,6 +12,7 @@ from app.api.memory import router as memory_router
 from app.api.auth import router as auth_router
 from app.api.storage import router as storage_router
 from app.api.events import router as events_router
+from app.api.ai_operations import router as ai_operations_router
 from app.api.version import router as version_router
 from app.api.github import router as github_router
 from app.api.repositories import router as repositories_router
@@ -80,6 +81,7 @@ app.include_router(change_tasks_router)
 app.include_router(tools_router)
 app.include_router(jobs_router)
 app.include_router(events_router)
+app.include_router(ai_operations_router)
 app.include_router(storage_router)
 app.include_router(memory_router)
 app.include_router(llm_router)

@@ -19,13 +19,21 @@ import {
   fetchLlmConfig,
   fetchLlmDiagnostics,
   fetchLlmHealth,
+  type ProviderHealth,
   testLlmConnection,
   type LlmConfig,
   type LlmDiagnostics,
   type LlmHealth,
   type LlmTestConnectionResult,
-  type ProviderHealth,
 } from "@/lib/api/llm";
+import {
+  fetchOperationsHistory,
+  fetchOperationsOverview,
+  fetchOperationsProviders,
+  type OperationEvent,
+  type OperationsOverview,
+  type ProviderOperationsHealth,
+} from "@/lib/api/aiOperations";
 
 // ---------------------------------------------------------------------------
 // Shared styles
@@ -236,6 +244,82 @@ function DiagnosticsPanel({
   );
 }
 
+function OperationsOverviewCard({ overview }: { overview: OperationsOverview }) {
+  return (
+    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <h2 className="text-sm font-medium text-[var(--muted)]">Usage & Cost</h2>
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-[var(--muted)]">Total requests</dt>
+          <dd className="mt-0.5 font-mono text-sm">{overview.total_requests}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-[var(--muted)]">Total tokens</dt>
+          <dd className="mt-0.5 font-mono text-sm">{overview.total_tokens}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-[var(--muted)]">Avg latency</dt>
+          <dd className="mt-0.5 font-mono text-sm">
+            {Math.round(overview.average_latency_ms)} ms
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-[var(--muted)]">Estimated cost</dt>
+          <dd className="mt-0.5 font-mono text-sm">
+            ${overview.total_estimated_cost_usd.toFixed(4)}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function ProviderCards({ items }: { items: ProviderOperationsHealth[] }) {
+  return (
+    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <h2 className="text-sm font-medium text-[var(--muted)]">Provider Health</h2>
+      <ul className="mt-4 space-y-3">
+        {items.map((item) => (
+          <li key={item.provider} className="rounded-xl border border-[var(--border)] p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">{item.provider}</p>
+              <StatusBadge ok={item.available} />
+            </div>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              avg {Math.round(item.average_latency_ms)} ms • failure{" "}
+              {(item.failure_rate * 100).toFixed(1)}%
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RecentActivity({ items }: { items: OperationEvent[] }) {
+  return (
+    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <h2 className="text-sm font-medium text-[var(--muted)]">Recent AI Activity</h2>
+      <ul className="mt-4 space-y-2">
+        {items.map((item) => (
+          <li
+            key={item.request_id}
+            className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-xs"
+          >
+            <div>
+              <p className="font-mono">{item.model}</p>
+              <p className="text-[var(--muted)]">
+                {item.task_type ?? "chat"} • {Math.round(item.latency_ms)} ms
+              </p>
+            </div>
+            <StatusBadge ok={item.status === "success"} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Test Connection panel
 // ---------------------------------------------------------------------------
@@ -326,6 +410,12 @@ export default function AiSettingsPage() {
   const [health, setHealth] = useState<LlmHealth | null>(null);
   const [config, setConfig] = useState<LlmConfig | null>(null);
   const [diagnostics, setDiagnostics] = useState<LlmDiagnostics | null>(null);
+  const [operationsOverview, setOperationsOverview] =
+    useState<OperationsOverview | null>(null);
+  const [operationsProviders, setOperationsProviders] = useState<
+    ProviderOperationsHealth[]
+  >([]);
+  const [recentOperations, setRecentOperations] = useState<OperationEvent[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -336,9 +426,17 @@ export default function AiSettingsPage() {
         fetchLlmConfig(),
         fetchLlmDiagnostics(),
       ]);
+      const [overview, providers, history] = await Promise.all([
+        fetchOperationsOverview(),
+        fetchOperationsProviders(),
+        fetchOperationsHistory(8),
+      ]);
       setHealth(h);
       setConfig(c);
       setDiagnostics(d);
+      setOperationsOverview(overview);
+      setOperationsProviders(providers);
+      setRecentOperations(history);
       setError("");
     } catch (e) {
       setError(
@@ -406,6 +504,11 @@ export default function AiSettingsPage() {
               <DiagnosticsPanel diagnostics={diagnostics} />
             )}
             <TestConnectionPanel />
+            {operationsOverview && (
+              <OperationsOverviewCard overview={operationsOverview} />
+            )}
+            <ProviderCards items={operationsProviders} />
+            <RecentActivity items={recentOperations} />
           </div>
         </>
       )}

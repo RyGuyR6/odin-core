@@ -4,6 +4,12 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 
+from app.ai.operations.models import AIOperationEvent
+from app.ai.operations.telemetry import (
+    AIOperationsTelemetryStore,
+    normalize_error_category,
+)
+
 from .config import LLMSettings, get_llm_settings
 from .exceptions import (
     AllProvidersFailedError,
@@ -46,6 +52,7 @@ class LLMService:
         self.hooks = hooks or NoopIntegrationHooks()
         self.usage_store = usage_store or InMemoryUsageStore()
         self.pricing = PricingRegistry.from_mapping(self.settings.pricing_registry())
+        self.telemetry = AIOperationsTelemetryStore()
 
     def _apply_chat_hooks(self, request: ChatRequest) -> ChatRequest:
         if request.integration_point == "native_chat":
@@ -81,7 +88,7 @@ class LLMService:
         retries = max(0, self.settings.max_retries)
         for attempt in range(retries + 1):
             try:
-                return await operation()
+                return await operation(), attempt
             except Exception as exc:
                 if attempt >= retries or not self._retryable(exc):
                     raise
@@ -119,6 +126,90 @@ class LLMService:
             )
         model = request.model or self.settings.model_for_role(request.model_role)
         return request.model_copy(update={"provider": provider, "model": model})
+
+    def _routing_decision(self, request: ChatRequest | EmbeddingRequest) -> str:
+        if request.model:
+            return "explicit_model"
+        if getattr(request, "task_type", None):
+            return "task_profile_matrix"
+        if isinstance(request, EmbeddingRequest):
+            return "embedding_role_default"
+        return "model_role_default"
+
+    def _routing_override(self, request: ChatRequest | EmbeddingRequest) -> bool:
+        if request.model:
+            return True
+        task_type = getattr(request, "task_type", None)
+        if not task_type:
+            return False
+        profile = (
+            getattr(request, "execution_profile", None)
+            or self.settings.default_execution_profile
+        )
+        overrides = self.settings._task_model_overrides()
+        return (
+            f"{str(task_type).lower()}/{str(profile).lower()}" in overrides
+            or str(task_type).lower() in overrides
+        )
+
+    def _record_operation_event(
+        self,
+        *,
+        request: ChatRequest | EmbeddingRequest,
+        request_type: str,
+        provider: str,
+        model: str,
+        success: bool,
+        retry_count: int,
+        duration_ms: float,
+        response: LLMResponse | EmbeddingResponse | None = None,
+        error_type: str | None = None,
+        time_to_first_token_ms: float | None = None,
+        stream_duration_ms: float | None = None,
+        completion_latency_ms: float | None = None,
+        tool_call_count: int = 0,
+        tool_call_duration_ms: float | None = None,
+        streaming_failure: bool = False,
+    ) -> None:
+        prompt_tokens = response.usage.prompt_tokens if response else 0
+        completion_tokens = response.usage.completion_tokens if response else 0
+        total_tokens = response.usage.total_tokens if response else 0
+        estimated_cost = response.usage.estimated_cost_usd if response else 0.0
+        metadata = getattr(request, "metadata", {}) or {}
+        request_id = str(metadata.get("request_id") or f"{provider}-{time.time_ns()}")
+        try:
+            event = AIOperationEvent(
+                request_id=request_id,
+                provider=provider,
+                model=model,
+                request_type=request_type,  # type: ignore[arg-type]
+                task_type=str(getattr(request, "task_type", "") or "") or None,
+                execution_profile=(
+                    str(getattr(request, "execution_profile", "") or "") or None
+                ),
+                integration_point=request.integration_point,
+                routing_decision=self._routing_decision(request),
+                routing_override=self._routing_override(request),
+                retry_count=retry_count,
+                tool_used=tool_call_count > 0,
+                tool_call_count=tool_call_count,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                estimated_cost_usd=estimated_cost,
+                latency_ms=duration_ms,
+                time_to_first_token_ms=time_to_first_token_ms,
+                stream_duration_ms=stream_duration_ms,
+                completion_latency_ms=completion_latency_ms,
+                tool_call_duration_ms=tool_call_duration_ms,
+                streaming_failure=streaming_failure,
+                status="success" if success else "failure",
+                normalized_error_category=normalize_error_category(error_type),
+                error_detail=error_type,
+            )
+            self.telemetry.record(event)
+        except Exception:
+            return
 
     def _record_usage(
         self,
@@ -168,7 +259,7 @@ class LLMService:
             )
         started = time.perf_counter()
         try:
-            response = await self._retry(lambda: provider.chat(routed))
+            response, retry_count = await self._retry(lambda: provider.chat(routed))
             if not self.settings.expose_raw_responses:
                 response.raw = None
             self._record_usage(
@@ -180,16 +271,38 @@ class LLMService:
                 duration_ms=(time.perf_counter() - started) * 1000,
                 success=True,
             )
+            self._record_operation_event(
+                request=request,
+                request_type="chat",
+                provider=response.provider,
+                model=response.model,
+                success=True,
+                retry_count=retry_count,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                response=response,
+                tool_call_count=len(response.tool_calls),
+            )
             return response
         except Exception as exc:
+            elapsed = (time.perf_counter() - started) * 1000
             self._record_usage(
                 request_type="chat",
                 response=None,
                 model=routed.model or self.settings.primary_model,
                 provider=routed.provider or self.settings.default_provider,
                 integration_point=request.integration_point,
-                duration_ms=(time.perf_counter() - started) * 1000,
+                duration_ms=elapsed,
                 success=False,
+                error_type=type(exc).__name__,
+            )
+            self._record_operation_event(
+                request=request,
+                request_type="chat",
+                provider=routed.provider or self.settings.default_provider,
+                model=routed.model or self.settings.primary_model,
+                success=False,
+                retry_count=0,
+                duration_ms=elapsed,
                 error_type=type(exc).__name__,
             )
             raise AllProvidersFailedError(
@@ -224,20 +337,76 @@ class LLMService:
             )
         started = time.perf_counter()
         emitted = False
+        retries = max(0, self.settings.max_retries)
+        retry_count = 0
+        first_token_at: float | None = None
+        tool_call_count = 0
         try:
-            async for chunk in self._retry_stream(provider, routed):
-                emitted = True
-                yield chunk
+            for attempt in range(retries + 1):
+                try:
+                    async for chunk in provider.stream(routed):
+                        emitted = True
+                        if first_token_at is None and (
+                            chunk.delta or chunk.tool_calls or chunk.done
+                        ):
+                            first_token_at = time.perf_counter()
+                        if chunk.tool_calls:
+                            tool_call_count += len(chunk.tool_calls)
+                        yield chunk
+                    break
+                except Exception as exc:
+                    if attempt >= retries or not self._retryable(exc):
+                        raise
+                    retry_count = attempt + 1
+                    await asyncio.sleep(
+                        self.settings.retry_base_seconds * (2**attempt)
+                    )
+
+            elapsed = (time.perf_counter() - started) * 1000
             self._record_usage(
                 request_type="stream",
                 response=None,
                 model=routed.model or self.settings.primary_model,
                 provider=routed.provider or self.settings.default_provider,
                 integration_point=request.integration_point,
-                duration_ms=(time.perf_counter() - started) * 1000,
+                duration_ms=elapsed,
                 success=True,
             )
+            self._record_operation_event(
+                request=request,
+                request_type="stream",
+                provider=routed.provider or self.settings.default_provider,
+                model=routed.model or self.settings.primary_model,
+                success=True,
+                retry_count=retry_count,
+                duration_ms=elapsed,
+                time_to_first_token_ms=(
+                    ((first_token_at - started) * 1000) if first_token_at else None
+                ),
+                stream_duration_ms=elapsed,
+                completion_latency_ms=elapsed,
+                tool_call_count=tool_call_count,
+                tool_call_duration_ms=0.0 if tool_call_count else None,
+            )
         except Exception as exc:
+            elapsed = (time.perf_counter() - started) * 1000
+            self._record_operation_event(
+                request=request,
+                request_type="stream",
+                provider=routed.provider or self.settings.default_provider,
+                model=routed.model or self.settings.primary_model,
+                success=False,
+                retry_count=retry_count,
+                duration_ms=elapsed,
+                error_type=type(exc).__name__,
+                time_to_first_token_ms=(
+                    ((first_token_at - started) * 1000) if first_token_at else None
+                ),
+                stream_duration_ms=elapsed if emitted else None,
+                completion_latency_ms=elapsed if emitted else None,
+                tool_call_count=tool_call_count,
+                streaming_failure=True,
+            )
             if emitted:
                 raise
             self._record_usage(
@@ -246,27 +415,13 @@ class LLMService:
                 model=routed.model or self.settings.primary_model,
                 provider=routed.provider or self.settings.default_provider,
                 integration_point=request.integration_point,
-                duration_ms=(time.perf_counter() - started) * 1000,
+                duration_ms=elapsed,
                 success=False,
                 error_type=type(exc).__name__,
             )
             raise AllProvidersFailedError(
                 {routed.provider or "openai": str(exc)}
             ) from exc
-
-    async def _retry_stream(
-        self, provider, request: ChatRequest
-    ) -> AsyncIterator[StreamChunk]:
-        retries = max(0, self.settings.max_retries)
-        for attempt in range(retries + 1):
-            try:
-                async for chunk in provider.stream(request):
-                    yield chunk
-                return
-            except Exception as exc:
-                if attempt >= retries or not self._retryable(exc):
-                    raise
-                await asyncio.sleep(self.settings.retry_base_seconds * (2**attempt))
 
     async def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         request = self._apply_embedding_hooks(request)
@@ -278,7 +433,7 @@ class LLMService:
             )
         started = time.perf_counter()
         try:
-            response = await self._retry(lambda: provider.embeddings(routed))
+            response, retry_count = await self._retry(lambda: provider.embeddings(routed))
             self._record_usage(
                 request_type="embedding",
                 response=response,
@@ -288,16 +443,37 @@ class LLMService:
                 duration_ms=(time.perf_counter() - started) * 1000,
                 success=True,
             )
+            self._record_operation_event(
+                request=request,
+                request_type="embedding",
+                provider=response.provider,
+                model=response.model,
+                success=True,
+                retry_count=retry_count,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                response=response,
+            )
             return response
         except Exception as exc:
+            elapsed = (time.perf_counter() - started) * 1000
             self._record_usage(
                 request_type="embedding",
                 response=None,
                 model=routed.model or self.settings.embedding_model,
                 provider=routed.provider or self.settings.default_provider,
                 integration_point=request.integration_point,
-                duration_ms=(time.perf_counter() - started) * 1000,
+                duration_ms=elapsed,
                 success=False,
+                error_type=type(exc).__name__,
+            )
+            self._record_operation_event(
+                request=request,
+                request_type="embedding",
+                provider=routed.provider or self.settings.default_provider,
+                model=routed.model or self.settings.embedding_model,
+                success=False,
+                retry_count=0,
+                duration_ms=elapsed,
                 error_type=type(exc).__name__,
             )
             raise AllProvidersFailedError(
