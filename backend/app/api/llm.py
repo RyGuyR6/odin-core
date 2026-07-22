@@ -172,7 +172,6 @@ async def chat_with_tools(request: ToolChatRequest):
     """
     from app.llm.models import ChatMessage, ChatRequest as LLMChatRequest  # noqa: PLC0415
     from app.llm.tool_adapter import get_tool_adapter  # noqa: PLC0415
-    from app.tools.exceptions import ToolNotFoundError  # noqa: PLC0415
 
     # Validate tool names before touching the LLM
     adapter = get_tool_adapter()

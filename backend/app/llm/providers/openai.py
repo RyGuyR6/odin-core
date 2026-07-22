@@ -522,7 +522,7 @@ class OpenAIProvider(LLMProvider):
                 consecutive_failures=0,
                 last_success=datetime.now(UTC),
             )
-        except AuthenticationError as exc:
+        except AuthenticationError:
             return ProviderHealth(
                 provider=self.name,
                 configured=True,
