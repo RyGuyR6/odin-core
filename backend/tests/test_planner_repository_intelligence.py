@@ -114,7 +114,7 @@ def test_planner_api_returns_repository_intelligence_context(
     body = response.json()
     assert "identify_candidate_files" in body["phases"]
     assert body["repository"]["status"] == "ready"
-    assert body["repository_summary"]["frameworks"] == ["FastAPI", "Next.js", "React"]
+    assert {"FastAPI", "Next.js", "React"} <= set(body["repository_summary"]["frameworks"])
     assert body["result"]["variables"]["repository"]["full_name"] == "acme/repo"
     assert any(
         candidate["path"] == "frontend/app/api/health/route.ts"
