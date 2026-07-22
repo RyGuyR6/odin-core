@@ -46,6 +46,7 @@ CONFIG_SUFFIXES = (".config.js", ".config.ts", ".config.mjs", ".config.cjs")
 SCRIPT_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
 SOURCE_EXTENSIONS = {".py", *SCRIPT_EXTENSIONS}
 LOCAL_SCRIPT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
+MAX_SEMANTIC_RANKING_RESULTS = 24
 IMPORT_RE = re.compile(
     r"^\s*import\s+(?:type\s+)?(?P<what>.+?)\s+from\s+[\"'](?P<module>[^\"']+)[\"']",
     re.MULTILINE,
@@ -251,6 +252,7 @@ class RepositoryIntelligenceService:
         self.git = GitClient(timeout_seconds=15)
         self._active_scans: dict[str, threading.Event] = {}
         self._scan_lock = threading.Lock()
+        self._embedding_cache: dict[str, list[float]] = {}
 
     def _connect(self) -> sqlite3.Connection:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -854,33 +856,28 @@ class RepositoryIntelligenceService:
         query: str,
         results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        if len(results) > 24:
-            results = results[:24]
-        try:
-            response = await get_llm_service().embeddings(
-                EmbeddingRequest(
-                    input=[
-                        query,
-                        *[
-                            " | ".join(
-                                str(value)
-                                for value in (
-                                    item.get("file_path"),
-                                    item.get("symbol"),
-                                    item.get("excerpt"),
-                                    item.get("match_type"),
-                                )
-                                if value
-                            )
-                            for item in results
-                        ],
-                    ],
-                    integration_point="repository_context",
+        if len(results) > MAX_SEMANTIC_RANKING_RESULTS:
+            results = results[:MAX_SEMANTIC_RANKING_RESULTS]
+        texts = [
+            query,
+            *[
+                " | ".join(
+                    str(value)
+                    for value in (
+                        item.get("file_path"),
+                        item.get("symbol"),
+                        item.get("excerpt"),
+                        item.get("match_type"),
+                    )
+                    if value
                 )
-            )
+                for item in results
+            ],
+        ]
+        try:
+            vectors = await self._embedding_vectors(texts)
         except (ProviderConfigurationError, AllProvidersFailedError):
             return results
-        vectors = response.embeddings
         if len(vectors) != len(results) + 1:
             return results
         query_vector = vectors[0]
@@ -896,6 +893,31 @@ class RepositoryIntelligenceService:
                 else item["match_type"]
             )
         return results
+
+    async def _embedding_vectors(self, texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = [[] for _ in texts]
+        missing: list[str] = []
+        missing_indexes: list[int] = []
+        for index, text in enumerate(texts):
+            cached = self._embedding_cache.get(text)
+            if cached is not None:
+                vectors[index] = cached
+                continue
+            missing.append(text)
+            missing_indexes.append(index)
+        if missing:
+            response = await get_llm_service().embeddings(
+                EmbeddingRequest(
+                    input=missing,
+                    integration_point="repository_context",
+                )
+            )
+            for index, text, vector in zip(
+                missing_indexes, missing, response.embeddings, strict=True
+            ):
+                self._embedding_cache[text] = vector
+                vectors[index] = vector
+        return vectors
 
     @staticmethod
     def _cosine_similarity(left: list[float], right: list[float]) -> float:
