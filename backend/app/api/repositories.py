@@ -63,6 +63,7 @@ class RepositorySearchResponse(BaseModel):
     results: list[dict[str, Any]]
     stale: bool = False
     indexed_revision: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
 
 
 def _ensure_connected_schema(connection: sqlite3.Connection) -> None:
@@ -577,10 +578,19 @@ async def repository_context(
     owner: str,
     name: str,
     q: str = Query(min_length=1, max_length=500),
+    file_limit: int = Query(default=6, ge=1, le=20),
+    symbol_limit: int = Query(default=8, ge=1, le=30),
+    documentation_limit: int = Query(default=4, ge=1, le=20),
     _: Principal = Depends(get_current_principal),
 ):
     _require_connected(owner, name)
-    package = await repository_context_service.aget_context(f"{owner}/{name}", q)
+    package = await repository_context_service.aget_context(
+        f"{owner}/{name}",
+        q,
+        file_limit=file_limit,
+        symbol_limit=symbol_limit,
+        documentation_limit=documentation_limit,
+    )
     return package.model_dump(mode="json")
 
 

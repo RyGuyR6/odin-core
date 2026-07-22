@@ -116,6 +116,7 @@ describe("RepositoriesPage", () => {
       if (url === "/api/repositories/acme/repo/dependency-graph") return { body: graph };
       if (url === "/api/repositories/acme/repo/symbols") return { body: symbols };
       if (url === "/api/repositories/acme/repo/documentation") return { body: documentation };
+      if (url === "/api/repositories/acme/repo/documentation?q=health") return { body: documentation };
       throw new Error(`Unhandled URL: ${url}`);
     });
 
@@ -173,5 +174,89 @@ describe("RepositoriesPage", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+  });
+
+  it("starts async re-indexing and sends repository search filters", async () => {
+    installFetchMock((url, init) => {
+      if (url === "/api/repositories") return { body: { repositories: [connectedRepository] } };
+      if (url === "/api/repositories/available") return { body: { repositories: [] } };
+      if (url === "/api/repositories/acme/repo/status") {
+        return {
+          body: {
+            connected: true,
+            repository: connectedRepository,
+            github: { default_branch: "main", private: false, archived: false, disabled: false, open_issues_count: 0, pushed_at: "2026-07-21T00:00:00Z" },
+            intelligence: {
+              status: "ready",
+              local_path: connectedRepository.local_path,
+              indexed_revision: "abcdef1234567890",
+              summary,
+              architecture,
+              metadata: { indexed_branch: "main" },
+            },
+          },
+        };
+      }
+      if (url === "/api/repositories/acme/repo/reindex") {
+        expect(init?.method).toBe("POST");
+        return {
+          body: {
+            repository: "acme/repo",
+            local_path: connectedRepository.local_path,
+            status: "scanning",
+          },
+        };
+      }
+      if (url === "/api/repositories/acme/repo/summary") return { body: summary };
+      if (url === "/api/repositories/acme/repo/tree") return { body: tree };
+      if (url === "/api/repositories/acme/repo/dependency-graph") return { body: graph };
+      if (url === "/api/repositories/acme/repo/symbols") return { body: symbols };
+      if (url === "/api/repositories/acme/repo/documentation") return { body: documentation };
+      if (url === "/api/repositories/acme/repo/search?q=health&language=TypeScript&file_type=source&symbol_type=function&include_documentation=false") {
+        return {
+          body: {
+            count: 1,
+            results: [
+              {
+                repository: "acme/repo",
+                file_path: "frontend/app/page.tsx",
+                symbol: "Page",
+                source_location: { line: 1 },
+                relevance_score: 91.2,
+                match_type: "symbol",
+                excerpt: "function Page()",
+                indexed_revision: "abcdef1234567890",
+                language: "TypeScript",
+                file_type: "source",
+              },
+            ],
+            stale: false,
+            indexed_revision: "abcdef1234567890",
+            metrics: { search_latency_ms: 12.5, semantic_ranking_applied: true },
+          },
+        };
+      }
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    render(<RepositoriesPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Re-index" }));
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/repositories/acme/repo/reindex",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    await userEvent.selectOptions(screen.getByLabelText("Language"), "TypeScript");
+    await userEvent.selectOptions(screen.getByLabelText("File type"), "source");
+    await userEvent.selectOptions(screen.getByLabelText("Symbol type"), "function");
+    await userEvent.selectOptions(screen.getByLabelText("Documentation"), "false");
+    await userEvent.type(screen.getByPlaceholderText("Search files, symbols, docs"), "health");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(await screen.findByText("Search latency: 12.5 ms")).toBeInTheDocument();
+    expect(screen.getByText("Semantic ranking: applied")).toBeInTheDocument();
   });
 });

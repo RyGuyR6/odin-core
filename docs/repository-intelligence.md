@@ -16,12 +16,14 @@ Odin's repository intelligence extends the existing repository scan pipeline ins
 3. The scanner records the indexed revision, compares current file hashes against the prior payload, and only reparses changed files.
 4. Deleted files are removed from symbols, docs, references, and dependency edges during the rebuild.
 5. Cancellation requests flip scan state to `cancelled` and are honored between file batches.
+6. Index metadata records changed files, deleted files, indexed branch, skipped secret-like files, and skip samples for observability.
 
 ## Parser extension interface
 
-- Python uses `ast` for symbols, imports, docstrings, and references.
-- Script languages use the existing language-aware extractor hooks plus safe text fallback helpers for comments and references.
-- Additional parsers should extend `_analyze_file` and return `AnalysisResult` values with symbols, imports, references, documentation, and architecture matches.
+- `backend/app/repository/parser.py` now resolves a parser through an extensible interface before repository analysis runs.
+- Python uses the `PythonAstParser` for language-aware AST parsing.
+- Non-Python content falls back to `SafeTextParser`, which keeps repository content readable and safe without pretending unsupported languages have full semantic parsing.
+- Additional parsers should be added to `RepositoryParser` and then wired into `RepositoryIntelligenceService._analyze_file` so they can emit `AnalysisResult` values with symbols, imports, references, documentation, and architecture matches.
 
 ## Repository graph
 
@@ -58,8 +60,13 @@ Repository intelligence continues to rely on the existing repository and tool pl
 
 - Local paths must be absolute, inside allowed scan roots, and pass `safe_child` validation.
 - File browsing uses normalized relative paths.
-- Large, ignored, and binary files are skipped by the repository indexer.
+- Large, ignored, and known secret-like files are skipped by the repository indexer by default, with skip counts recorded in metadata.
 - Repository content is treated as untrusted input; documentation and code excerpts are stored as plain text only.
+
+## Search and context metrics
+
+- Repository search responses now include structured metrics such as search latency and whether semantic reranking ran.
+- Repository context responses include context latency, upstream search latency, and bounded result counts so chat and planner callers can reason about stale or partial context.
 
 ## API surface
 

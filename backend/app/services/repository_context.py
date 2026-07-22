@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import time
 import re
 from typing import Any
 
@@ -31,6 +32,7 @@ class RepositoryContextPackage(BaseModel):
     tests: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
     token_estimate: int = 0
+    metrics: dict[str, Any] = Field(default_factory=dict)
 
 
 class RepositoryContextService:
@@ -43,12 +45,18 @@ class RepositoryContextService:
         symbol_limit: int = 8,
         documentation_limit: int = 4,
     ) -> RepositoryContextPackage:
+        started = time.perf_counter()
         record = repository_intelligence_service.get_scan(repository)
         if record is None or record.payload is None or record.status != "ready":
             return RepositoryContextPackage(
                 repository=repository,
                 stale=True,
                 notes=[f"Repository intelligence is not ready for {repository}."],
+                metrics={
+                    "context_latency_ms": round(
+                        (time.perf_counter() - started) * 1000, 3
+                    )
+                },
             )
 
         search = await repository_intelligence_service.search_repository(
@@ -153,6 +161,19 @@ class RepositoryContextService:
             tests=tests,
             notes=notes,
             token_estimate=token_estimate,
+            metrics={
+                "context_latency_ms": round(
+                    (time.perf_counter() - started) * 1000, 3
+                ),
+                "search_latency_ms": (
+                    search.get("metrics", {}).get("search_latency_ms")
+                    if isinstance(search.get("metrics"), dict)
+                    else None
+                ),
+                "files_returned": len(files),
+                "symbols_returned": len(related_symbols),
+                "documentation_returned": len(documentation),
+            },
         )
 
     def get_context(

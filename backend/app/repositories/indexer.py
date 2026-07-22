@@ -1,10 +1,10 @@
 from __future__ import annotations
+from dataclasses import dataclass, field
 import hashlib
 import json
 import os
 from pathlib import Path
 from .models import FileIndexEntry, FileKind, RepositoryManifest
-from .security import safe_child
 
 IGNORE_DIRS = {
     ".git", ".hg", ".svn", ".idea", ".vscode", "__pycache__", ".pytest_cache",
@@ -26,11 +26,49 @@ CONFIG_NAMES = {
     "Dockerfile", "docker-compose.yml", "compose.yml", "Makefile",
 }
 DOC_NAMES = {"README.md", "README.rst", "README.txt", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE"}
+SECRET_NAMES = {
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production",
+    ".env.test",
+    ".npmrc",
+    ".pypirc",
+    "credentials.json",
+    "credentials.yml",
+    "credentials.yaml",
+    "secrets.json",
+    "secrets.yml",
+    "secrets.yaml",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+}
+SECRET_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".crt", ".cer", ".der", ".kdbx"}
+
+
+@dataclass(slots=True)
+class RepositoryIndexStats:
+    files_considered: int = 0
+    files_indexed: int = 0
+    skipped_ignored: int = 0
+    skipped_large: int = 0
+    skipped_secret: int = 0
+    stopped_by_limit: bool = False
+    skipped_samples: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            "ignored": [],
+            "large": [],
+            "secret": [],
+        }
+    )
 
 class RepositoryIndexer:
     def __init__(self, max_file_bytes: int = 2_000_000, max_files: int = 20_000):
         self.max_file_bytes = max_file_bytes
         self.max_files = max_files
+        self.last_stats = RepositoryIndexStats()
 
     def _kind(self, relative: Path) -> FileKind:
         name = relative.name
@@ -55,18 +93,54 @@ class RepositoryIndexer:
             return True
         return b"\0" in chunk
 
+    @staticmethod
+    def _is_secret_path(relative: Path) -> bool:
+        name = relative.name
+        lower_name = name.lower()
+        if name in SECRET_NAMES or lower_name in SECRET_NAMES:
+            return True
+        if lower_name.startswith(".env.") and lower_name not in {
+            ".env.example",
+            ".env.sample",
+            ".env.template",
+        }:
+            return True
+        if relative.suffix.lower() in SECRET_SUFFIXES:
+            return True
+        return False
+
+    def _record_skip(self, reason: str, path: Path) -> None:
+        bucket = self.last_stats.skipped_samples.setdefault(reason, [])
+        if len(bucket) < 5:
+            bucket.append(path.as_posix())
+
     def build(self, root: Path) -> list[FileIndexEntry]:
+        self.last_stats = RepositoryIndexStats()
         entries: list[FileIndexEntry] = []
         for current, dirs, files in os.walk(root):
-            dirs[:] = sorted(d for d in dirs if d not in IGNORE_DIRS)
+            kept_dirs = []
+            for directory in sorted(dirs):
+                if directory in IGNORE_DIRS:
+                    self.last_stats.skipped_ignored += 1
+                    self._record_skip("ignored", Path(current).joinpath(directory).relative_to(root))
+                    continue
+                kept_dirs.append(directory)
+            dirs[:] = kept_dirs
             for filename in sorted(files):
                 path = Path(current) / filename
                 relative = path.relative_to(root)
+                self.last_stats.files_considered += 1
+                if self._is_secret_path(relative):
+                    self.last_stats.skipped_secret += 1
+                    self._record_skip("secret", relative)
+                    continue
                 try:
                     stat = path.stat()
                 except OSError:
                     continue
                 if stat.st_size > self.max_file_bytes:
+                    self.last_stats.skipped_large += 1
+                    self._record_skip("large", relative)
                     continue
                 binary = self._binary(path)
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -75,7 +149,9 @@ class RepositoryIndexer:
                     sha256=digest, kind=self._kind(relative),
                     language=LANGUAGES.get(relative.suffix.lower()), binary=binary,
                 ))
+                self.last_stats.files_indexed += 1
                 if len(entries) >= self.max_files:
+                    self.last_stats.stopped_by_limit = True
                     return entries
         return entries
 

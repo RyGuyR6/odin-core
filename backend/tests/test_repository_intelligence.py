@@ -22,6 +22,7 @@ def create_sample_repository(root: Path) -> Path:
     (root / "docs/architecture.md").write_text(
         "# Architecture\n\nHealth route uses backend services.\n"
     )
+    (root / ".env").write_text("ODIN_SECRET=super-secret\n")
     (root / ".env.example").write_text("ODIN_ENV=test\n")
     (root / "pyproject.toml").write_text("""
 [project]
@@ -172,6 +173,8 @@ def test_repository_intelligence_service_scans_repository(
         sorted(cycle) == ["backend/app/cycle_a.py", "backend/app/cycle_b.py"]
         for cycle in record.payload.dependency_graph.circular_dependencies
     )
+    assert not any(entry.path == ".env" for entry in record.payload.inventory)
+    assert record.payload.metadata["skipped_files"]["secret"] >= 1
 
 
 def test_repository_intelligence_incremental_metadata_tracks_changes(
@@ -273,13 +276,18 @@ def test_repository_intelligence_api_endpoints(tmp_path: Path, monkeypatch) -> N
     search = client.get("/api/repositories/acme/repo/search?q=health")
     assert search.status_code == 200
     assert search.json()["count"] >= 1
+    assert search.json()["metrics"]["search_latency_ms"] >= 0
 
     context = client.get(
-        "/api/repositories/acme/repo/context?q=Update the health route"
+        "/api/repositories/acme/repo/context?q=Update the health route&file_limit=2&symbol_limit=1&documentation_limit=1"
     )
     assert context.status_code == 200
     assert context.json()["repository"] == "acme/repo"
     assert context.json()["relevant_files"]
+    assert len(context.json()["relevant_files"]) <= 2
+    assert len(context.json()["relevant_symbols"]) <= 1
+    assert len(context.json()["documentation"]) <= 1
+    assert context.json()["metrics"]["context_latency_ms"] >= 0
 
     references = client.get(
         "/api/repositories/acme/repo/references?symbol=STATUS_MESSAGE"

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from app.llm.exceptions import AllProvidersFailedError, ProviderConfigurationError
 from app.llm.models import EmbeddingRequest
 from app.llm.service import get_llm_service
+from app.repository.parser import ParsedRepositoryDocument, RepositoryParser
 from app.repositories.config import get_repository_settings
 from app.repositories.git import GitClient
 from app.repositories.indexer import RepositoryIndexer
@@ -250,6 +251,7 @@ class RepositoryIntelligenceService:
     def __init__(self) -> None:
         self.indexer = RepositoryIndexer()
         self.git = GitClient(timeout_seconds=15)
+        self.parser = RepositoryParser()
         self._active_scans: dict[str, threading.Event] = {}
         self._scan_lock = threading.Lock()
         self._embedding_cache: dict[str, list[float]] = {}
@@ -696,9 +698,18 @@ class RepositoryIntelligenceService:
         symbol_type: str | None = None,
         include_documentation: bool | None = None,
     ) -> dict[str, Any]:
+        started = time.perf_counter()
         record = self.get_scan(full_name)
         if record is None or record.payload is None or record.status != "ready":
-            return {"results": [], "count": 0, "stale": True}
+            return {
+                "results": [],
+                "count": 0,
+                "stale": True,
+                "metrics": {
+                    "search_latency_ms": round((time.perf_counter() - started) * 1000, 3),
+                    "semantic_ranking_applied": False,
+                },
+            }
         payload = record.payload
         root = Path(payload.local_path)
         needle = query.strip().lower()
@@ -826,7 +837,7 @@ class RepositoryIntelligenceService:
                 line=hit["line"],
             )
 
-        results = await self._semantic_rank(query, results)
+        results, semantic_metrics = await self._semantic_rank(query, results)
         deduped: dict[tuple[str, str, str | None, int | None], dict[str, Any]] = {}
         for item in sorted(
             results,
@@ -849,13 +860,22 @@ class RepositoryIntelligenceService:
             "count": len(ordered),
             "stale": self.is_stale(full_name),
             "indexed_revision": payload.indexed_revision,
+            "metrics": {
+                "search_latency_ms": round((time.perf_counter() - started) * 1000, 3),
+                **semantic_metrics,
+            },
         }
 
     async def _semantic_rank(
         self,
         query: str,
         results: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        metrics = {
+            "semantic_ranking_attempted": bool(results),
+            "semantic_ranking_applied": False,
+            "embedding_inputs": 0,
+        }
         if len(results) > MAX_SEMANTIC_RANKING_RESULTS:
             results = results[:MAX_SEMANTIC_RANKING_RESULTS]
         texts = [
@@ -874,13 +894,15 @@ class RepositoryIntelligenceService:
                 for item in results
             ],
         ]
+        metrics["embedding_inputs"] = len(texts)
         try:
             vectors = await self._embedding_vectors(texts)
         except (ProviderConfigurationError, AllProvidersFailedError):
-            return results
+            return results, metrics
         if len(vectors) != len(results) + 1:
-            return results
+            return results, metrics
         query_vector = vectors[0]
+        metrics["semantic_ranking_applied"] = True
         for item, vector in zip(results, vectors[1:], strict=True):
             item["relevance_score"] = round(
                 float(item["relevance_score"])
@@ -892,7 +914,7 @@ class RepositoryIntelligenceService:
                 if item["match_type"] == "lexical" and item["relevance_score"] > 75
                 else item["match_type"]
             )
-        return results
+        return results, metrics
 
     async def _embedding_vectors(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = [[] for _ in texts]
@@ -963,6 +985,7 @@ class RepositoryIntelligenceService:
         architecture_matches: dict[str, set[str]] = defaultdict(set)
         metadata = self._build_metadata(root, entries)
         revision = self._head_revision(root)
+        branch = self._current_branch(root)
         current_entries = {entry.path: entry for entry in inventory}
         previous_entries = {
             entry.path: entry
@@ -1069,6 +1092,7 @@ class RepositoryIntelligenceService:
             summary=summary,
             metadata={
                 **metadata,
+                "indexed_branch": branch,
                 "changed_files": changed_files,
                 "deleted_files": deleted_files,
                 "symbols_indexed": len(symbols),
@@ -1107,11 +1131,21 @@ class RepositoryIntelligenceService:
         module_map: dict[str, str],
         inventory_paths: set[str],
     ) -> AnalysisResult:
+        parsed = self.parser.parse_document(entry.path, text, language=entry.language)
         suffix = Path(entry.path).suffix.lower()
         if suffix == ".py":
-            return self._analyze_python(entry, text, module_map)
+            return self._analyze_python(
+                entry,
+                text,
+                module_map,
+                parsed if parsed.kind == "python_ast" else None,
+            )
         if suffix in SCRIPT_EXTENSIONS:
-            return self._analyze_script(entry, text, inventory_paths)
+            return self._analyze_script(
+                entry,
+                parsed.text or text,
+                inventory_paths,
+            )
         if Path(entry.path).name == "package.json":
             return AnalysisResult(
                 symbols=[],
@@ -1135,9 +1169,10 @@ class RepositoryIntelligenceService:
         entry: InventoryEntry,
         text: str,
         module_map: dict[str, str],
+        parsed: ParsedRepositoryDocument | None = None,
     ) -> AnalysisResult:
         try:
-            tree = ast.parse(text, filename=entry.path)
+            tree = parsed.tree if parsed is not None else ast.parse(text, filename=entry.path)
         except SyntaxError:
             return AnalysisResult(
                 symbols=[],
@@ -1794,6 +1829,14 @@ class RepositoryIntelligenceService:
         except Exception:
             return None
 
+    def _current_branch(self, root: Path) -> str | None:
+        try:
+            if not self.git.is_repository(root):
+                return None
+            return self.git.current_branch(root)
+        except Exception:
+            return None
+
     @staticmethod
     def _build_tree(inventory: list[InventoryEntry]) -> FileNode:
         root = FileNode(name="/", path="", type="directory", children=[])
@@ -1852,6 +1895,7 @@ class RepositoryIntelligenceService:
         manifest = self.indexer.manifest(root.name, root, entries).model_dump(
             mode="json"
         )
+        stats = self.indexer.last_stats
         return {
             "scanned_at": self.now(),
             "root_name": root.name,
@@ -1860,6 +1904,14 @@ class RepositoryIntelligenceService:
             "total_bytes": manifest["total_bytes"],
             "detected_languages": manifest["languages"],
             "detected_frameworks": manifest["frameworks"],
+            "files_considered": stats.files_considered,
+            "skipped_files": {
+                "ignored": stats.skipped_ignored,
+                "large": stats.skipped_large,
+                "secret": stats.skipped_secret,
+            },
+            "skip_samples": stats.skipped_samples,
+            "max_files_reached": stats.stopped_by_limit,
         }
 
     def _build_summary(
