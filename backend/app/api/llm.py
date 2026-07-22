@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.auth import Principal, UserRole, get_current_principal, require_roles
 from app.llm.capability_registry import get_capability_registry
 from app.llm.exceptions import AllProvidersFailedError, LLMError
 from app.llm.models import ChatRequest, CompletionRequest, EmbeddingRequest
@@ -28,12 +29,15 @@ def _raise_http(exc: Exception) -> None:
 
 
 @router.get("/providers")
-async def list_providers():
+async def list_providers(_: Principal = Depends(get_current_principal)):
     return [item.model_dump() for item in await get_llm_service().providers()]
 
 
 @router.get("/models")
-async def list_models(provider: str | None = Query(default=None)):
+async def list_models(
+    provider: str | None = Query(default=None),
+    _: Principal = Depends(get_current_principal),
+):
     try:
         return [item.model_dump() for item in await get_llm_service().models(provider)]
     except Exception as exc:
@@ -41,22 +45,29 @@ async def list_models(provider: str | None = Query(default=None)):
 
 
 @router.get("/health")
-async def llm_health():
+async def llm_health(_: Principal = Depends(get_current_principal)):
     return await get_llm_service().health()
 
 
 @router.get("/usage")
-async def llm_usage(limit: int = Query(default=100, ge=1, le=1000)):
+async def llm_usage(
+    limit: int = Query(default=100, ge=1, le=1000),
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     return get_llm_service().usage_records(limit=limit)
 
 
 @router.get("/usage/summary")
-async def llm_usage_summary():
+async def llm_usage_summary(
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     return get_llm_service().usage_summary()
 
 
 @router.get("/config")
-async def llm_config():
+async def llm_config(
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     """Return the active AI platform configuration.
 
     The API key is never included in this response.
@@ -77,19 +88,23 @@ async def llm_config():
 
 
 @router.post("/test-connection")
-async def test_connection():
+async def test_connection(
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     """Validate API key and connectivity without requiring any specific model."""
     return await get_llm_service().test_connection()
 
 
 @router.get("/diagnostics")
-async def llm_diagnostics():
+async def llm_diagnostics(
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
     """Return a comprehensive AI platform diagnostic snapshot."""
     return await get_llm_service().diagnostics()
 
 
 @router.get("/capabilities")
-async def llm_capabilities():
+async def llm_capabilities(_: Principal = Depends(get_current_principal)):
     """Return the static capability registry for all known models."""
     registry = get_capability_registry()
     return {
@@ -111,7 +126,10 @@ async def llm_capabilities():
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    _: Principal = Depends(get_current_principal),
+):
     try:
         return (await get_llm_service().chat(request)).model_dump()
     except Exception as exc:
@@ -119,7 +137,10 @@ async def chat(request: ChatRequest):
 
 
 @router.post("/complete")
-async def complete(request: CompletionRequest):
+async def complete(
+    request: CompletionRequest,
+    _: Principal = Depends(get_current_principal),
+):
     try:
         return (await get_llm_service().complete(request)).model_dump()
     except Exception as exc:
@@ -127,7 +148,10 @@ async def complete(request: CompletionRequest):
 
 
 @router.post("/embeddings")
-async def embeddings(request: EmbeddingRequest):
+async def embeddings(
+    request: EmbeddingRequest,
+    _: Principal = Depends(get_current_principal),
+):
     try:
         return (await get_llm_service().embeddings(request)).model_dump()
     except Exception as exc:
@@ -135,7 +159,10 @@ async def embeddings(request: EmbeddingRequest):
 
 
 @router.post("/stream")
-async def stream(request: ChatRequest):
+async def stream(
+    request: ChatRequest,
+    _: Principal = Depends(get_current_principal),
+):
     async def events():
         try:
             async for chunk in get_llm_service().stream(request):
@@ -164,7 +191,10 @@ class ToolChatRequest(BaseModel):
 
 
 @router.post("/chat/tools")
-async def chat_with_tools(request: ToolChatRequest):
+async def chat_with_tools(
+    request: ToolChatRequest,
+    _: Principal = Depends(get_current_principal),
+):
     """Multi-turn tool-calling chat backed by the OIC-009 Agent Tool Platform.
 
     tool_names must reference tools already registered server-side in OIC-009.
