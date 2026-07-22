@@ -27,8 +27,10 @@ STOPWORDS = {
 }
 FRONTEND_TERMS = {"component", "frontend", "page", "route", "ui"}
 BACKEND_TERMS = {"api", "backend", "endpoint", "service", "worker"}
-FRONTEND_FRAMEWORKS = {"next.js", "react"}
-BACKEND_FRAMEWORKS = {"fastapi"}
+SUPPORTED_FRONTEND_FRAMEWORKS = {"next.js", "react"}
+SUPPORTED_BACKEND_FRAMEWORKS = {"django", "express", "fastapi", "flask"}
+MAX_ARCHITECTURE_FILES_PER_CATEGORY = 12
+MAX_CANDIDATE_FILES = 5
 
 
 class Planner:
@@ -69,8 +71,12 @@ class Planner:
             return metadata
 
         terms = self._goal_terms(goal)
+        frameworks = {
+            framework.lower()
+            for framework in scan.payload.summary.frameworks
+        }
         candidates = self._candidate_files(scan, terms)
-        metadata["phases"] = self._phase_sequence(terms, scan, candidates)
+        metadata["phases"] = self._phase_sequence(terms, frameworks, candidates)
         metadata["candidate_files"] = candidates
         metadata["repository"] = {
             "full_name": repository,
@@ -98,7 +104,7 @@ class Planner:
     def _phase_sequence(
         self,
         terms: set[str],
-        scan: RepositoryScanRecord,
+        frameworks: set[str],
         candidates: list[dict[str, Any]],
     ) -> list[str]:
         phases = [
@@ -106,10 +112,9 @@ class Planner:
             "review_repository_intelligence",
             "identify_candidate_files",
         ]
-        frameworks = {framework.lower() for framework in scan.payload.summary.frameworks}
-        if terms & FRONTEND_TERMS and FRONTEND_FRAMEWORKS & frameworks:
+        if terms & FRONTEND_TERMS and SUPPORTED_FRONTEND_FRAMEWORKS & frameworks:
             phases.append("review_frontend_surface")
-        if terms & BACKEND_TERMS and BACKEND_FRAMEWORKS & frameworks:
+        if terms & BACKEND_TERMS and SUPPORTED_BACKEND_FRAMEWORKS & frameworks:
             phases.append("review_backend_surface")
         if candidates:
             phases.append("prioritize_candidate_files")
@@ -157,7 +162,7 @@ class Planner:
             category_terms = self._goal_terms(category.category.replace("_", " "))
             if not terms & category_terms:
                 continue
-            for path in category.files[:12]:
+            for path in category.files[:MAX_ARCHITECTURE_FILES_PER_CATEGORY]:
                 add(path, 3.0, f"architecture:{category.category}")
 
         for path in payload.dependency_graph.entry_points:
@@ -185,7 +190,7 @@ class Planner:
             ),
             key=lambda item: (-item["score"], item["path"]),
         )
-        return ranked[:5]
+        return ranked[:MAX_CANDIDATE_FILES]
 
 
 planner = Planner()
