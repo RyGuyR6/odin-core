@@ -46,7 +46,9 @@ def _raise_http(exc: Exception) -> None:
         raise HTTPException(status_code=410, detail=str(exc)) from exc
     if isinstance(exc, ConversationError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    raise HTTPException(status_code=500, detail="Unexpected conversation subsystem error.") from exc
+    raise HTTPException(
+        status_code=500, detail="Unexpected conversation subsystem error."
+    ) from exc
 
 
 @router.post("")
@@ -93,12 +95,18 @@ async def import_conversation(request: ConversationImport):
 
 
 @router.get("/{conversation_id}")
-async def get_conversation(conversation_id: str, include_deleted: bool = Query(default=False)):
+async def get_conversation(
+    conversation_id: str, include_deleted: bool = Query(default=False)
+):
     try:
-        return get_conversation_manager().get_conversation(
-            conversation_id,
-            include_deleted=include_deleted,
-        ).model_dump()
+        return (
+            get_conversation_manager()
+            .get_conversation(
+                conversation_id,
+                include_deleted=include_deleted,
+            )
+            .model_dump()
+        )
     except Exception as exc:
         _raise_http(exc)
 
@@ -106,7 +114,11 @@ async def get_conversation(conversation_id: str, include_deleted: bool = Query(d
 @router.patch("/{conversation_id}")
 async def update_conversation(conversation_id: str, request: ConversationUpdate):
     try:
-        return get_conversation_manager().update_conversation(conversation_id, request).model_dump()
+        return (
+            get_conversation_manager()
+            .update_conversation(conversation_id, request)
+            .model_dump()
+        )
     except Exception as exc:
         _raise_http(exc)
 
@@ -123,7 +135,11 @@ async def delete_conversation(conversation_id: str):
 @router.post("/{conversation_id}/restore")
 async def restore_conversation(conversation_id: str):
     try:
-        return get_conversation_manager().restore_conversation(conversation_id).model_dump()
+        return (
+            get_conversation_manager()
+            .restore_conversation(conversation_id)
+            .model_dump()
+        )
     except Exception as exc:
         _raise_http(exc)
 
@@ -182,13 +198,16 @@ async def summarize_conversation(conversation_id: str, request: SummarizeRequest
 @router.get("/{conversation_id}/export")
 async def export_conversation(conversation_id: str):
     try:
-        return get_conversation_manager().export_conversation(conversation_id).model_dump()
+        return (
+            get_conversation_manager().export_conversation(conversation_id).model_dump()
+        )
     except Exception as exc:
         _raise_http(exc)
 
 
 class StreamMessageRequest(BaseModel):
     content: str
+    repository: str | None = None
     provider: str | None = None
     model: str | None = None
     temperature: float | None = None
@@ -198,12 +217,22 @@ class StreamMessageRequest(BaseModel):
 @router.post("/{conversation_id}/stream")
 async def stream_message(conversation_id: str, request: StreamMessageRequest):
     """Stream an assistant reply for a conversation, persisting both messages."""
+    if request.repository:
+        manager = get_conversation_manager()
+        conversation = manager.get_conversation(conversation_id)
+        metadata = dict(conversation.metadata)
+        metadata["repository"] = request.repository
+        manager.update_conversation(
+            conversation_id,
+            ConversationUpdate(metadata=metadata),
+        )
 
     async def events():
         try:
             async for chunk in get_chat_service().stream_reply(
                 conversation_id,
                 request.content,
+                repository=request.repository,
                 provider=request.provider,
                 model=request.model,
                 temperature=request.temperature,
@@ -212,7 +241,9 @@ async def stream_message(conversation_id: str, request: StreamMessageRequest):
                 yield f"data: {json.dumps({'delta': chunk.delta, 'done': chunk.done, 'model': chunk.model})}\n\n"
             yield f"data: {json.dumps({'delta': '', 'done': True})}\n\n"
         except Exception:
-            logger.exception("Streaming reply failed for conversation %s", conversation_id)
+            logger.exception(
+                "Streaming reply failed for conversation %s", conversation_id
+            )
             yield f"event: error\ndata: {json.dumps({'error': 'Stream generation failed. Please try again.', 'done': True})}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")
@@ -240,7 +271,9 @@ async def create_session(request: SessionCreate):
 async def list_sessions(conversation_id: str | None = Query(default=None)):
     return [
         item.model_dump()
-        for item in get_conversation_manager().list_sessions(conversation_id=conversation_id)
+        for item in get_conversation_manager().list_sessions(
+            conversation_id=conversation_id
+        )
     ]
 
 
@@ -263,7 +296,11 @@ async def touch_session(session_id: str):
 @sessions_router.post("/{session_id}/lock")
 async def lock_session(session_id: str, request: SessionLockRequest):
     try:
-        return get_conversation_manager().lock_session(session_id, request.locked).model_dump()
+        return (
+            get_conversation_manager()
+            .lock_session(session_id, request.locked)
+            .model_dump()
+        )
     except Exception as exc:
         _raise_http(exc)
 

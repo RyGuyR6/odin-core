@@ -21,13 +21,11 @@ def create_sample_repository(root: Path) -> Path:
         "# sample-repo\n\nSample repository for planner tests.\n"
     )
 
-    (root / "backend/pyproject.toml").write_text(
-        """
+    (root / "backend/pyproject.toml").write_text("""
 [project]
 name = "sample-repo"
 dependencies = ["fastapi", "pydantic"]
-""".strip()
-    )
+""".strip())
 
     (root / "frontend/package.json").write_text(
         json.dumps(
@@ -41,8 +39,7 @@ dependencies = ["fastapi", "pydantic"]
         )
     )
 
-    (root / "backend/app/main.py").write_text(
-        """
+    (root / "backend/app/main.py").write_text("""
 from fastapi import APIRouter
 
 router = APIRouter()
@@ -51,31 +48,24 @@ router = APIRouter()
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-""".strip()
-    )
+""".strip())
 
-    (root / "backend/app/service.py").write_text(
-        """
+    (root / "backend/app/service.py").write_text("""
 def build_health_message() -> str:
     return "ok"
-""".strip()
-    )
+""".strip())
 
-    (root / "frontend/components/widget.tsx").write_text(
-        """
+    (root / "frontend/components/widget.tsx").write_text("""
 export function HealthWidget() {
   return <div>ok</div>;
 }
-""".strip()
-    )
+""".strip())
 
-    (root / "frontend/app/api/health/route.ts").write_text(
-        """
+    (root / "frontend/app/api/health/route.ts").write_text("""
 export async function GET() {
   return Response.json({ ok: true });
 }
-""".strip()
-    )
+""".strip())
 
     return root
 
@@ -99,9 +89,9 @@ def test_planner_uses_repository_intelligence_for_metadata(
     assert "review_repository_intelligence" in plan.metadata["phases"]
     assert "review_backend_surface" in plan.metadata["phases"]
     assert plan.metadata["repository"]["status"] == "ready"
-    assert plan.metadata["repository_context"].startswith(
-        "Repository: acme/repo"
-    )
+    assert plan.metadata["repository_context"].startswith("Repository: acme/repo")
+    assert plan.metadata["repository_package"]["repository"] == "acme/repo"
+    assert "likely_tests" in plan.metadata
     assert any(
         candidate["path"] == "frontend/app/api/health/route.ts"
         for candidate in plan.metadata["candidate_files"]
@@ -138,12 +128,14 @@ def test_planner_api_returns_repository_intelligence_context(
 
     assert "identify_candidate_files" in body["phases"]
     assert body["repository"]["status"] == "ready"
+    assert body["repository_package"]["repository"] == "acme/repo"
     assert body["repository_summary"]["frameworks"] == [
         "FastAPI",
         "Next.js",
         "Pydantic",
         "React",
     ]
+    assert "likely_tests" in body
     assert body["result"]["variables"]["repository"]["full_name"] == "acme/repo"
     assert any(
         candidate["path"] == "frontend/app/api/health/route.ts"
