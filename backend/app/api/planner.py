@@ -11,19 +11,13 @@ router = APIRouter(
 
 @router.post("/")
 def execute_goal(payload: dict):
+
     goal = payload["goal"]
-    repository = payload.get("repository")
-    plan = planner.create_plan(goal, repository=repository)
-    result = plan_executor.execute(plan)
+
+    plan = planner.create_plan(goal)
 
     return {
         "goal": goal,
         "steps": len(plan.steps),
-        "phases": plan.metadata.get("phases", []),
-        "repository": plan.metadata.get("repository"),
-        "repository_context": plan.metadata.get("repository_context"),
-        "repository_summary": plan.metadata.get("repository_summary"),
-        "candidate_files": plan.metadata.get("candidate_files", []),
-        "notes": plan.metadata.get("notes", []),
-        "result": result.to_dict(),
+        "result": plan_executor.execute(plan),
     }
