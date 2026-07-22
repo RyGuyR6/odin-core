@@ -47,7 +47,7 @@ class TestPlannerMemoryIntegration:
         ))
         from app.planning.planner import Planner
         planner = Planner()
-        with patch("app.planning.planner.MemoryManager", return_value=manager):
+        with patch("app.memory.MemoryManager", return_value=manager):
             plan = planner.create_plan("add JWT authentication to the API")
         assert isinstance(plan.metadata["memory_context"], list)
 
@@ -55,7 +55,7 @@ class TestPlannerMemoryIntegration:
         """If memory retrieval fails, the planner should still work."""
         from app.planning.planner import Planner
         planner = Planner()
-        with patch("app.planning.planner.MemoryManager", side_effect=Exception("DB unavailable")):
+        with patch("app.memory.MemoryManager", side_effect=Exception("DB unavailable")):
             plan = planner.create_plan("some goal that needs memory")
         assert "memory_context" in plan.metadata
         assert plan.metadata["memory_context"] == []
