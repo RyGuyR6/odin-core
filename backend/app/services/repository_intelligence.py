@@ -884,7 +884,7 @@ class RepositoryIntelligenceService:
         if len(vectors) != len(results) + 1:
             return results
         query_vector = vectors[0]
-        for item, vector in zip(results, vectors[1:], strict=False):
+        for item, vector in zip(results, vectors[1:], strict=True):
             item["relevance_score"] = round(
                 float(item["relevance_score"])
                 + max(0.0, self._cosine_similarity(query_vector, vector)) * 24,
@@ -950,7 +950,7 @@ class RepositoryIntelligenceService:
             path
             for path, entry in current_entries.items()
             if path not in previous_entries
-            or previous_entries[path].sha256 != entry.sha256  # type: ignore[attr-defined]
+            or previous_entries[path].sha256 != entry.sha256
         )
         deleted_files = sorted(
             path for path in previous_entries if path not in current_entries

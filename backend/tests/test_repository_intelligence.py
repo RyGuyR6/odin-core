@@ -201,6 +201,16 @@ def build_message() -> str:
     assert second.payload is not None
     assert "backend/app/service.py" in second.payload.metadata["changed_files"]
     assert "frontend/components/widget.tsx" in second.payload.metadata["deleted_files"]
+    assert any(
+        symbol.file_path == "backend/app/main.py" for symbol in second.payload.symbols
+    )
+    assert any(
+        reference.file_path == "backend/app/main.py"
+        for reference in second.payload.references
+    )
+    assert any(
+        document.path == "README.md" for document in second.payload.documentation
+    )
     assert not any(
         symbol.file_path == "frontend/components/widget.tsx"
         for symbol in second.payload.symbols

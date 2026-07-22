@@ -477,7 +477,7 @@ export default function RepositoriesPage() {
       await Promise.all([
         load(),
         loadSymbols(selected, symbolQuery),
-        loadDocumentation(selected, searchQuery),
+        loadDocumentation(selected),
       ]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to scan repository");
