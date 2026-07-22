@@ -164,6 +164,7 @@ class LLMService:
         duration_ms: float,
         response: LLMResponse | EmbeddingResponse | None = None,
         error_type: str | None = None,
+        error_detail: str | None = None,
         time_to_first_token_ms: float | None = None,
         stream_duration_ms: float | None = None,
         completion_latency_ms: float | None = None,
@@ -204,8 +205,10 @@ class LLMService:
                 tool_call_duration_ms=tool_call_duration_ms,
                 streaming_failure=streaming_failure,
                 status="success" if success else "failure",
-                normalized_error_category=normalize_error_category(error_type),
-                error_detail=error_type,
+                normalized_error_category=normalize_error_category(
+                    error_type, error_detail
+                ),
+                error_detail=error_detail or error_type,
             )
             self.telemetry.record(event)
         except Exception:
@@ -304,6 +307,7 @@ class LLMService:
                 retry_count=0,
                 duration_ms=elapsed,
                 error_type=type(exc).__name__,
+                error_detail=str(exc),
             )
             raise AllProvidersFailedError(
                 {routed.provider or "openai": str(exc)}
@@ -399,6 +403,7 @@ class LLMService:
                 retry_count=retry_count,
                 duration_ms=elapsed,
                 error_type=type(exc).__name__,
+                error_detail=str(exc),
                 time_to_first_token_ms=(
                     ((first_token_at - started) * 1000) if first_token_at else None
                 ),
@@ -475,6 +480,7 @@ class LLMService:
                 retry_count=0,
                 duration_ms=elapsed,
                 error_type=type(exc).__name__,
+                error_detail=str(exc),
             )
             raise AllProvidersFailedError(
                 {routed.provider or "openai": str(exc)}

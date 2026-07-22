@@ -36,10 +36,13 @@ class AIOperationsTelemetryStore:
         return events[:max_records]
 
 
-def normalize_error_category(error_type: str | None) -> str | None:
-    if not error_type:
+def normalize_error_category(
+    error_type: str | None,
+    error_detail: str | None = None,
+) -> str | None:
+    if not error_type and not error_detail:
         return None
-    label = error_type.lower()
+    label = f"{error_type or ''} {error_detail or ''}".lower()
     if "timeout" in label:
         return "timeout"
     if "auth" in label or "key" in label or "permission" in label:
