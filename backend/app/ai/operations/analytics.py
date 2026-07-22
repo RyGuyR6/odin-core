@@ -68,19 +68,22 @@ class AIOperationsAnalytics:
                     "total_tokens": 0,
                     "estimated_cost_usd": 0.0,
                     "average_latency_ms": 0.0,
-                    "_latencies": [],
+                    "_latency_sum": 0.0,
                 },
             )
             entry["requests"] += 1
             entry["failures"] += 1 if event.status == "failure" else 0
             entry["total_tokens"] += event.total_tokens
             entry["estimated_cost_usd"] += event.estimated_cost_usd
-            entry["_latencies"].append(event.latency_ms)
+            entry["_latency_sum"] += event.latency_ms
 
         rows = []
         for value in grouped.values():
-            latencies = value.pop("_latencies")
-            value["average_latency_ms"] = average(latencies)
+            latency_sum = float(value.pop("_latency_sum"))
+            request_count = int(value["requests"])
+            value["average_latency_ms"] = (
+                latency_sum / request_count if request_count else 0.0
+            )
             rows.append(value)
         rows.sort(key=lambda item: int(item["requests"]), reverse=True)
         return {"models": rows}

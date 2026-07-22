@@ -35,11 +35,9 @@ def provider_health_snapshot(
         if first_event is not None:
             uptime_seconds = max(0.0, (now - first_event).total_seconds())
 
-        configured = sorted({
-            model["id"]
-            for model in models_by_provider.get(provider, [])
-            if model.get("availability_verified") is False or model.get("available") is False
-        })
+        configured = sorted(
+            {model["id"] for model in models_by_provider.get(provider, [])}
+        )
         available = sorted({
             model["id"]
             for model in models_by_provider.get(provider, [])

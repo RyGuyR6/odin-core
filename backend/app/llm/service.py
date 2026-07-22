@@ -90,6 +90,7 @@ class LLMService:
             try:
                 return await operation(), attempt
             except Exception as exc:
+                setattr(exc, "_retry_count", attempt)
                 if attempt >= retries or not self._retryable(exc):
                     raise
                 await asyncio.sleep(self.settings.retry_base_seconds * (2**attempt))
@@ -304,7 +305,7 @@ class LLMService:
                 provider=routed.provider or self.settings.default_provider,
                 model=routed.model or self.settings.primary_model,
                 success=False,
-                retry_count=0,
+                retry_count=int(getattr(exc, "_retry_count", 0)),
                 duration_ms=elapsed,
                 error_type=type(exc).__name__,
                 error_detail=str(exc),
@@ -477,7 +478,7 @@ class LLMService:
                 provider=routed.provider or self.settings.default_provider,
                 model=routed.model or self.settings.embedding_model,
                 success=False,
-                retry_count=0,
+                retry_count=int(getattr(exc, "_retry_count", 0)),
                 duration_ms=elapsed,
                 error_type=type(exc).__name__,
                 error_detail=str(exc),
