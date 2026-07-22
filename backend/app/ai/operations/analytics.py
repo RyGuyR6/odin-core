@@ -29,7 +29,11 @@ class AIOperationsAnalytics:
             "failure_rate": (failures / total) if total else 0.0,
             "average_latency_ms": average([item.latency_ms for item in events]),
             "average_time_to_first_token_ms": average(
-                [item.time_to_first_token_ms or 0.0 for item in events if item.time_to_first_token_ms is not None]
+                [
+                    item.time_to_first_token_ms
+                    for item in events
+                    if item.time_to_first_token_ms is not None
+                ]
             ),
             "total_tokens": total_tokens,
             "total_estimated_cost_usd": total_cost,
@@ -108,17 +112,33 @@ class AIOperationsAnalytics:
             "streaming": {
                 "requests": len(stream_events),
                 "average_stream_duration_ms": average(
-                    [item.stream_duration_ms or 0.0 for item in stream_events if item.stream_duration_ms is not None]
+                    [
+                        item.stream_duration_ms
+                        for item in stream_events
+                        if item.stream_duration_ms is not None
+                    ]
                 ),
                 "average_first_token_latency_ms": average(
-                    [item.time_to_first_token_ms or 0.0 for item in stream_events if item.time_to_first_token_ms is not None]
+                    [
+                        item.time_to_first_token_ms
+                        for item in stream_events
+                        if item.time_to_first_token_ms is not None
+                    ]
                 ),
                 "average_completion_latency_ms": average(
-                    [item.completion_latency_ms or 0.0 for item in stream_events if item.completion_latency_ms is not None]
+                    [
+                        item.completion_latency_ms
+                        for item in stream_events
+                        if item.completion_latency_ms is not None
+                    ]
                 ),
                 "streaming_failures": sum(1 for item in stream_events if item.streaming_failure),
                 "tool_call_duration_ms": average(
-                    [item.tool_call_duration_ms or 0.0 for item in stream_events if item.tool_call_duration_ms is not None]
+                    [
+                        item.tool_call_duration_ms
+                        for item in stream_events
+                        if item.tool_call_duration_ms is not None
+                    ]
                 ),
             },
             "cost": {

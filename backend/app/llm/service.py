@@ -349,9 +349,11 @@ class LLMService:
         tool_call_count = 0
         try:
             for attempt in range(retries + 1):
+                emitted_in_attempt = False
                 try:
                     async for chunk in provider.stream(routed):
                         emitted = True
+                        emitted_in_attempt = True
                         if first_token_at is None and (
                             chunk.delta or chunk.tool_calls or chunk.done
                         ):
@@ -361,6 +363,8 @@ class LLMService:
                         yield chunk
                     break
                 except Exception as exc:
+                    if emitted_in_attempt:
+                        raise
                     if attempt >= retries or not self._retryable(exc):
                         raise
                     retry_count = attempt + 1
@@ -392,7 +396,7 @@ class LLMService:
                 stream_duration_ms=elapsed,
                 completion_latency_ms=elapsed,
                 tool_call_count=tool_call_count,
-                tool_call_duration_ms=0.0 if tool_call_count else None,
+                tool_call_duration_ms=None,
             )
         except Exception as exc:
             elapsed = (time.perf_counter() - started) * 1000
