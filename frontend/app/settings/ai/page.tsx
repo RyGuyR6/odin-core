@@ -19,12 +19,12 @@ import {
   fetchLlmConfig,
   fetchLlmDiagnostics,
   fetchLlmHealth,
-  type ProviderHealth,
   testLlmConnection,
   type LlmConfig,
   type LlmDiagnostics,
   type LlmHealth,
   type LlmTestConnectionResult,
+  type ProviderHealth,
 } from "@/lib/api/llm";
 import {
   fetchOperationsHistory,

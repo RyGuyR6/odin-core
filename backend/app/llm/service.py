@@ -88,7 +88,8 @@ class LLMService:
         retries = max(0, self.settings.max_retries)
         for attempt in range(retries + 1):
             try:
-                return await operation(), attempt
+                result = await operation()
+                return result, attempt
             except Exception as exc:
                 setattr(exc, "_retry_count", attempt)
                 if attempt >= retries or not self._retryable(exc):
