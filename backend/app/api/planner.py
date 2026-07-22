@@ -29,5 +29,6 @@ def execute_goal(payload: dict):
         "dependencies": plan.metadata.get("dependencies", []),
         "likely_tests": plan.metadata.get("likely_tests", []),
         "notes": plan.metadata.get("notes", []),
+        "memory_context": plan.metadata.get("memory_context", []),
         "result": result.to_dict(),
     }

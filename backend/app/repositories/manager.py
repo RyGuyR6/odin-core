@@ -130,6 +130,12 @@ class RepositoryManager:
             self.store.record_event(workspace_id, "repository.indexed", actor_id, {
                 "files": manifest.files_indexed, "bytes": manifest.total_bytes,
             })
+            # Capture repository insights into persistent memory (best-effort)
+            try:
+                from app.memory.repository_capture import capture_repository_insights
+                capture_repository_insights(workspace_id, record.name, manifest)
+            except Exception:
+                pass
             return manifest
         except Exception:
             record.state = WorkspaceState.error

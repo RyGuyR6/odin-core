@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 
 from app.conversations.manager import ConversationManager, get_conversation_manager
@@ -10,6 +11,10 @@ from app.services.repository_context import repository_context_service
 
 # Maximum characters from the first user message used to build an auto-title prompt.
 _AUTO_TITLE_MESSAGE_MAX_LENGTH = 500
+_MEMORY_CONTEXT_MAX_CHARS = 2000
+_MEMORY_SNIPPET_MAX_LENGTH = 300
+
+log = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -76,10 +81,11 @@ class ChatService:
             limit=self._conversations.settings.default_context_messages,
         )
         repository_messages = await self._repository_messages(repository, content)
+        memory_messages = self._memory_messages(content)
 
         response = await self._llm.chat(
             ChatRequest(
-                messages=[*repository_messages, *context],
+                messages=[*memory_messages, *repository_messages, *context],
                 provider=provider,
                 model=model,
                 temperature=temperature,
@@ -143,9 +149,10 @@ class ChatService:
             limit=self._conversations.settings.default_context_messages,
         )
         repository_messages = await self._repository_messages(repository, content)
+        memory_messages = self._memory_messages(content)
 
         chat_request = ChatRequest(
-            messages=[*repository_messages, *context],
+            messages=[*memory_messages, *repository_messages, *context],
             provider=provider,
             model=model,
             temperature=temperature,
@@ -165,6 +172,31 @@ class ChatService:
                     conversation_id,
                     MessageCreate(role="assistant", content=accumulated),
                 )
+
+    def _memory_messages(self, query: str) -> list[ChatMessage]:
+        """Retrieve relevant memories and format as a system message."""
+        try:
+            from app.memory import MemoryManager, MemorySearchRequest
+            manager = MemoryManager()
+            results = manager.search(MemorySearchRequest(
+                query=query, mode="hybrid", limit=5, min_score=0.15,
+            ))
+            if not results:
+                return []
+            parts = ["Relevant knowledge from memory:"]
+            total = 0
+            for r in results:
+                snippet = r.content[:_MEMORY_SNIPPET_MAX_LENGTH]
+                entry = f"- [{r.kind}] {r.title or '(no title)'}: {snippet}"
+                if total + len(entry) > _MEMORY_CONTEXT_MAX_CHARS:
+                    break
+                parts.append(entry)
+                total += len(entry)
+            if len(parts) > 1:
+                return [ChatMessage(role="system", content="\n".join(parts))]
+        except Exception:
+            log.debug("Memory retrieval skipped in chat", exc_info=True)
+        return []
 
     async def _repository_messages(
         self,
