@@ -13,6 +13,8 @@ log = logging.getLogger(__name__)
 
 # Phase name constant — used in plan metadata to signal memory retrieval occurred
 PHASE_RETRIEVE_MEMORY_CONTEXT = "retrieve_memory_context"
+# Maximum content length (chars) included per memory entry in plan metadata
+_MEMORY_PLAN_CONTENT_MAX = 500
 
 STOPWORDS = {
     "a",
@@ -59,7 +61,7 @@ class Planner:
                 {
                     "memory_id": r.memory_id,
                     "title": r.title,
-                    "content": r.content[:500],
+                    "content": r.content[:_MEMORY_PLAN_CONTENT_MAX],
                     "kind": r.kind,
                     "score": r.score,
                     "importance": r.importance,

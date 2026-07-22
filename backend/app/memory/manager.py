@@ -14,6 +14,12 @@ from .retrieval import keyword_similarity, combine_scores, metadata_matches
 def _id(prefix: str) -> str: return f"{prefix}_{uuid.uuid4().hex}"
 def _hash(text: str) -> str: return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+# Search ranking weights: relevance score drives 75%, importance drives 25%.
+# Rationale: relevance should dominate so that a highly-relevant low-importance memory
+# outranks a high-importance memory that is less relevant to the query.
+_RELEVANCE_WEIGHT = 0.75
+_IMPORTANCE_WEIGHT = 0.25
+
 def _record(row, chunk_count=0):
     row_keys = set(row.keys())
     return MemoryRecord(
@@ -119,7 +125,7 @@ class MemoryManager:
             # Blend base score with importance (75% relevance, 25% importance) so
             # high-importance memories rank above equally relevant but lower-importance ones.
             importance=float(row["importance"]) if "importance" in row.keys() and row["importance"] is not None else 0.5
-            score=base_score*0.75 + importance*0.25
+            score=base_score*_RELEVANCE_WEIGHT + importance*_IMPORTANCE_WEIGHT
             if score < request.min_score: continue
             results.append(SearchResult(
                 memory_id=row["id"],chunk_id=row["chunk_id"],title=row["title"],content=row["chunk_content"],
