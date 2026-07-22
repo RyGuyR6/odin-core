@@ -11,6 +11,7 @@ pytest.importorskip("pydantic_settings", reason="full app stack not available")
 
 from app.memory.manager import MemoryManager
 from app.memory.config import MemorySettings
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture

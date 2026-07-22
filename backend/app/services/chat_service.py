@@ -12,6 +12,7 @@ from app.services.repository_context import repository_context_service
 # Maximum characters from the first user message used to build an auto-title prompt.
 _AUTO_TITLE_MESSAGE_MAX_LENGTH = 500
 _MEMORY_CONTEXT_MAX_CHARS = 2000
+_MEMORY_SNIPPET_MAX_LENGTH = 300
 
 log = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ class ChatService:
             parts = ["Relevant knowledge from memory:"]
             total = 0
             for r in results:
-                snippet = r.content[:300]
+                snippet = r.content[:_MEMORY_SNIPPET_MAX_LENGTH]
                 entry = f"- [{r.kind}] {r.title or '(no title)'}: {snippet}"
                 if total + len(entry) > _MEMORY_CONTEXT_MAX_CHARS:
                     break

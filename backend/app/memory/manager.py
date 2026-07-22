@@ -1,6 +1,5 @@
 from __future__ import annotations
 import hashlib, json, time, uuid
-from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -16,17 +15,18 @@ def _id(prefix: str) -> str: return f"{prefix}_{uuid.uuid4().hex}"
 def _hash(text: str) -> str: return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def _record(row, chunk_count=0):
+    row_keys = set(row.keys())
     return MemoryRecord(
         id=row["id"], title=row["title"], content=row["content"], kind=row["kind"],
         scope=row["scope"], project_id=row["project_id"],
-        repository_id=row["repository_id"] if "repository_id" in row.keys() else None,
+        repository_id=row["repository_id"] if "repository_id" in row_keys else None,
         conversation_id=row["conversation_id"], source=row["source"],
         tags=json.loads(row["tags_json"]), metadata=json.loads(row["metadata_json"]),
         content_hash=row["content_hash"], version=row["version"],
-        importance=float(row["importance"]) if "importance" in row.keys() and row["importance"] is not None else 0.5,
-        confidence=float(row["confidence"]) if "confidence" in row.keys() and row["confidence"] is not None else 1.0,
-        access_count=int(row["access_count"]) if "access_count" in row.keys() and row["access_count"] is not None else 0,
-        accessed_at=row["accessed_at"] if "accessed_at" in row.keys() else None,
+        importance=float(row["importance"]) if "importance" in row_keys and row["importance"] is not None else 0.5,
+        confidence=float(row["confidence"]) if "confidence" in row_keys and row["confidence"] is not None else 1.0,
+        access_count=int(row["access_count"]) if "access_count" in row_keys and row["access_count"] is not None else 0,
+        accessed_at=row["accessed_at"] if "accessed_at" in row_keys else None,
         chunk_count=chunk_count, created_at=row["created_at"], updated_at=row["updated_at"],
     )
 
@@ -116,7 +116,7 @@ class MemoryManager:
             sem=cosine_similarity(query_vector,json.loads(row["embedding_json"])) if query_vector else 0.0
             kw=keyword_similarity(request.query," ".join([row["title"] or "",row["chunk_content"]," ".join(json.loads(row["tags_json"]))]))
             base_score=combine_scores(sem,kw,request.mode)
-            # Boost by importance and recency
+            # Blend base score with importance so higher-importance memories rank higher
             importance=float(row["importance"]) if "importance" in row.keys() and row["importance"] is not None else 0.5
             score=base_score*0.75 + importance*0.25
             if score < request.min_score: continue

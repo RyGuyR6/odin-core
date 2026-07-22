@@ -65,17 +65,23 @@ class MemoryStore:
             except sqlite3.OperationalError:
                 pass
     def _migrate(self, db: sqlite3.Connection) -> None:
-        """Apply additive schema migrations for previously created databases."""
-        cols = {row[1] for row in db.execute("PRAGMA table_info(memories)")}
-        additions = [
+        """Apply additive schema migrations for previously created databases.
+
+        Adds columns introduced by OIC-011 (importance, confidence, access_count,
+        accessed_at, repository_id) when they don't exist yet, ensuring forward
+        compatibility with databases created before this milestone.
+        """
+        _ALLOWED_ADDITIONS: tuple[tuple[str, str], ...] = (
             ("repository_id", "TEXT"),
             ("importance", "REAL NOT NULL DEFAULT 0.5"),
             ("confidence", "REAL NOT NULL DEFAULT 1.0"),
             ("access_count", "INTEGER NOT NULL DEFAULT 0"),
             ("accessed_at", "TEXT"),
-        ]
-        for col, col_def in additions:
+        )
+        cols = {row[1] for row in db.execute("PRAGMA table_info(memories)")}
+        for col, col_def in _ALLOWED_ADDITIONS:
             if col not in cols:
+                # col and col_def come from a hardcoded tuple above — not user input
                 db.execute(f"ALTER TABLE memories ADD COLUMN {col} {col_def}")
         # Ensure new indexes exist
         try:

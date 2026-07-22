@@ -242,7 +242,7 @@ export default function MemoryPage() {
       if (selected?.id === id) setSelected(null);
       await load();
     } catch {
-      // ignore
+      // Deletion errors are non-critical; the list will stay consistent on next poll
     }
   }, [selected, load]);
 
