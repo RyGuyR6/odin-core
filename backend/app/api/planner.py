@@ -32,3 +32,30 @@ def execute_goal(payload: dict):
         "memory_context": plan.metadata.get("memory_context", []),
         "result": result.to_dict(),
     }
+
+
+@router.post("/ai")
+async def execute_goal_ai(payload: dict):
+    """AI-powered planning endpoint.
+
+    The planner calls the centralized LLM platform to generate a structured
+    execution plan.  It never calls OpenAI directly.
+    """
+    goal = payload["goal"]
+    repository = payload.get("repository")
+    profile = payload.get("profile")
+    plan = await planner.create_ai_plan(goal, repository=repository, profile=profile)
+    result = plan_executor.execute(plan)
+
+    return {
+        "goal": goal,
+        "steps": len(plan.steps),
+        "ai_generated": plan.metadata.get("ai_generated", False),
+        "ai_model": plan.metadata.get("ai_model"),
+        "phases": plan.metadata.get("phases", []),
+        "repository": plan.metadata.get("repository"),
+        "candidate_files": plan.metadata.get("candidate_files", []),
+        "notes": plan.metadata.get("notes", []),
+        "memory_context": plan.metadata.get("memory_context", []),
+        "result": result.to_dict(),
+    }

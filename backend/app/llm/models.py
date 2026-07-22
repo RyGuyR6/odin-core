@@ -5,6 +5,25 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# ---------------------------------------------------------------------------
+# Task types and execution profiles
+# ---------------------------------------------------------------------------
+
+TaskType = Literal[
+    "chat",
+    "planning",
+    "code_generation",
+    "debugging",
+    "documentation",
+    "memory_summarization",
+    "repair",
+    "large_context_analysis",
+    "repository_search",
+    "embedding",
+]
+
+ExecutionProfile = Literal["economy", "balanced", "maximum"]
+
 
 class ChatMessage(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
@@ -63,6 +82,7 @@ class StreamChunk(BaseModel):
     model: str
     delta: str = ""
     finish_reason: str | None = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
     done: bool = False
 
 
@@ -71,6 +91,8 @@ class ChatRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     model_role: Literal["primary", "economy"] = "primary"
+    task_type: TaskType | None = None
+    execution_profile: ExecutionProfile | None = None
     integration_point: (
         Literal[
             "native_chat",
@@ -138,6 +160,15 @@ class ModelInfo(BaseModel):
     supports_tools: bool = False
     supports_json: bool = False
     supports_embeddings: bool = False
+    # Extended capability fields
+    supports_reasoning: bool = False
+    supports_large_context: bool = False
+    supports_structured_output: bool = False
+    supports_vision: bool = False
+    supports_image_generation: bool = False
+    # Availability tracking
+    available: bool = True
+    availability_verified: bool = False
 
 
 class ProviderHealth(BaseModel):
@@ -146,6 +177,9 @@ class ProviderHealth(BaseModel):
     available: bool
     latency_ms: float | None = None
     error: str | None = None
+    auth_status: Literal["ok", "missing_key", "invalid_key", "unknown"] = "unknown"
+    consecutive_failures: int = 0
+    last_success: datetime | None = None
 
 
 class UsageRecord(BaseModel):
