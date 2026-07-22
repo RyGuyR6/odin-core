@@ -25,7 +25,7 @@ STOPWORDS = {
     "to",
     "with",
 }
-FRONTEND_TERMS = {"component", "frontend", "page", "route", "ui"}
+FRONTEND_TERMS = {"component", "frontend", "page", "ui"}
 BACKEND_TERMS = {"api", "backend", "endpoint", "service", "worker"}
 SUPPORTED_FRONTEND_FRAMEWORKS = {"next.js", "react"}
 SUPPORTED_BACKEND_FRAMEWORKS = {"django", "express", "fastapi", "flask"}
@@ -134,6 +134,10 @@ class Planner:
         reasons: dict[str, list[str]] = defaultdict(list)
         payload = scan.payload
         assert payload is not None
+        inventory_by_module: dict[str, list[str]] = defaultdict(list)
+        for entry in payload.inventory:
+            top_level = entry.path.split("/", 1)[0]
+            inventory_by_module[top_level].append(entry.path)
 
         def add(path: str, score: float, reason: str) -> None:
             if not path:
@@ -153,6 +157,8 @@ class Planner:
                 )
 
         for category in payload.architecture:
+            if not category.files:
+                continue
             category_terms = self._goal_terms(category.category.replace("_", " "))
             if not terms & category_terms:
                 continue
@@ -168,10 +174,8 @@ class Planner:
             matched = sorted(term for term in terms if term in module.name.lower())
             if not matched:
                 continue
-            prefix = module.name.rstrip("/") + "/"
-            for entry in payload.inventory:
-                if entry.path.startswith(prefix):
-                    add(entry.path, 1.5, f"module:{module.name}")
+            for path in inventory_by_module.get(module.name, []):
+                add(path, 1.5, f"module:{module.name}")
 
         ranked = sorted(
             (
