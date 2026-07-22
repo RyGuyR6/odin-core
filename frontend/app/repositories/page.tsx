@@ -699,7 +699,7 @@ export default function RepositoriesPage() {
           )}
           {status?.intelligence.indexed_revision && (
             <span className="rounded-full border border-white/10 px-3 py-1">
-              Indexed revision: {status.intelligence.indexed_revision?.slice(0, 12) || "unknown"}
+              Indexed revision: {status.intelligence.indexed_revision?.slice(0, 12) ?? "unknown"}
             </span>
           )}
           {typeof status?.intelligence.metadata?.indexed_branch === "string" && (

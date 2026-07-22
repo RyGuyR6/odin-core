@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import sqrt
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -545,7 +545,7 @@ class RepositoryIntelligenceService:
     def validate_local_path(self, local_path: str) -> Path:
         if not local_path:
             raise ValueError("A local repository path is required before scanning.")
-        raw_path = Path(local_path).expanduser()
+        raw_path = PurePath(local_path)
         if not raw_path.is_absolute():
             raise ValueError("Repository path must be absolute.")
         if ".." in raw_path.parts:
@@ -568,16 +568,8 @@ class RepositoryIntelligenceService:
             sanitized = safe_child(root, relative.as_posix())
             if sanitized.exists() and sanitized.is_dir():
                 return sanitized
-            raise ValueError("Repository path does not exist.")
+            raise ValueError("Repository path does not exist or is not a directory.")
         raise ValueError("Repository path is outside the allowed scan roots.")
-
-    @staticmethod
-    def _is_relative_to(path: Path, root: Path) -> bool:
-        try:
-            path.relative_to(root)
-            return True
-        except ValueError:
-            return False
 
     def is_stale(self, full_name: str) -> bool:
         record = self.get_scan(full_name)
