@@ -14,10 +14,14 @@ router = APIRouter(prefix="/llm", tags=["llm"])
 
 def _raise_http(exc: Exception) -> None:
     if isinstance(exc, AllProvidersFailedError):
-        raise HTTPException(status_code=503, detail={"message": str(exc), "providers": exc.errors}) from exc
+        raise HTTPException(
+            status_code=503, detail={"message": str(exc), "providers": exc.errors}
+        ) from exc
     if isinstance(exc, LLMError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    raise HTTPException(status_code=500, detail="Unexpected LLM subsystem error.") from exc
+    raise HTTPException(
+        status_code=500, detail="Unexpected LLM subsystem error."
+    ) from exc
 
 
 @router.get("/providers")
@@ -36,6 +40,16 @@ async def list_models(provider: str | None = Query(default=None)):
 @router.get("/health")
 async def llm_health():
     return await get_llm_service().health()
+
+
+@router.get("/usage")
+async def llm_usage(limit: int = Query(default=100, ge=1, le=1000)):
+    return get_llm_service().usage_records(limit=limit)
+
+
+@router.get("/usage/summary")
+async def llm_usage_summary():
+    return get_llm_service().usage_summary()
 
 
 @router.post("/chat")

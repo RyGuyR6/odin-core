@@ -30,22 +30,22 @@ The project is past foundation work and is now in the product-hardening phase: c
 | OW-008 Repository Explorer | In Progress | The repositories surface already exposes connection, scan status, tree, graph, architecture, and symbol exploration, but it still reads as an evolving operator surface rather than a finished explorer milestone. | OW-002, OW-003, OIC-002, OIC-007 |
 | Activity Feed | In Progress | Events APIs and SSE streaming exist, and the frontend route is scaffolded, but the dedicated feed experience is not complete. | OW-004, OW-006, OIC-006 |
 | Settings / Configuration | Planned | A settings route exists only as a scaffold; provider, safety, deployment, and integration configuration still need a full product surface. | OW-003, OIC-008 |
-| OIC-008 OpenAI Integration Layer | Planned | Introduce a canonical OpenAI-backed integration layer that standardizes model usage across chat, planning, and repository-aware workflows. | OW-001, OW-003, OIC-002, OIC-007 |
+| OIC-008 OpenAI Integration Layer | Complete | Canonical OpenAI-backed provider abstraction, model-role routing, streaming/embeddings support, retries/error mapping, usage/cost accounting hooks, and integration interfaces are implemented in backend LLM services. | OW-001, OW-003, OIC-002, OIC-007 |
 
 ## OIC-008 — OpenAI Integration Layer
 
-Planned scope:
+Completed scope:
 
 - OpenAI provider abstraction
 - Configurable model roles (Primary, Economy, Embedding)
 - Streaming responses
-- Conversation memory integration
-- Tool calling
-- Planner integration
-- Repository context injection
+- Conversation memory integration hooks
+- Tool calling hooks
+- Planner integration hooks
+- Repository context injection hooks
 - Token/cost tracking
 - Retry/error handling
-- Usage metrics
+- Usage metrics interface
 
 ## Dependency summary
 

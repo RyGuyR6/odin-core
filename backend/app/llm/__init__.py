@@ -12,11 +12,23 @@ from .models import (
     ToolCall,
     ToolDefinition,
     Usage,
+    UsageRecord,
 )
 from .service import LLMService, get_llm_service
 
 __all__ = [
-    "ChatMessage", "ChatRequest", "CompletionRequest", "EmbeddingRequest",
-    "LLMResponse", "ModelInfo", "ProviderHealth", "StreamChunk", "ToolCall",
-    "ToolDefinition", "Usage", "LLMService", "get_llm_service",
+    "ChatMessage",
+    "ChatRequest",
+    "CompletionRequest",
+    "EmbeddingRequest",
+    "LLMResponse",
+    "ModelInfo",
+    "ProviderHealth",
+    "StreamChunk",
+    "ToolCall",
+    "ToolDefinition",
+    "Usage",
+    "UsageRecord",
+    "LLMService",
+    "get_llm_service",
 ]
