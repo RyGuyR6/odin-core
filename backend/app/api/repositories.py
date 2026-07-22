@@ -1,4 +1,4 @@
-"""OW-005: Odin-owned GitHub repository connections."""
+"""Repository connections and repository intelligence APIs."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, field_validator
 
 from app.auth import Principal, UserRole, get_current_principal, require_roles
+from app.services.repository_intelligence import repository_intelligence_service
 
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
 
@@ -25,10 +26,37 @@ DB_PATH = Path(
 GITHUB_API = "https://api.github.com"
 
 
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
+class ConnectRepositoryRequest(BaseModel):
+    full_name: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    local_path: str | None = None
+
+    @field_validator("local_path")
+    @classmethod
+    def clean_local_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = value.strip()
+        return text or None
+
+
+class RepositoryScanRequest(BaseModel):
+    local_path: str | None = None
+
+    @field_validator("local_path")
+    @classmethod
+    def clean_local_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = value.strip()
+        return text or None
+
+
+class SymbolLookupResponse(BaseModel):
+    count: int
+    symbols: list[dict[str, Any]]
+
+
+def _ensure_connected_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS connected_repositories (
@@ -43,12 +71,28 @@ def _connect() -> sqlite3.Connection:
             description TEXT,
             connected_by TEXT NOT NULL,
             connected_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            local_path TEXT
         )
         """
     )
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(connected_repositories)").fetchall()
+    }
+    if "local_path" not in columns:
+        connection.execute("ALTER TABLE connected_repositories ADD COLUMN local_path TEXT")
     connection.commit()
+
+
+
+def _connect() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    _ensure_connected_schema(connection)
     return connection
+
 
 
 def _token() -> str:
@@ -61,9 +105,10 @@ def _token() -> str:
     return token
 
 
+
 def _headers() -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {_token()}",
+        "Authorization": "Bearer " + _token(),
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "Odin-Core",
@@ -96,11 +141,9 @@ async def _github_get(path: str, params: dict[str, Any] | None = None) -> Any:
     return response.json()
 
 
-class ConnectRepositoryRequest(BaseModel):
-    full_name: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-
 
 def _serialize(row: sqlite3.Row) -> dict[str, Any]:
+    scan = repository_intelligence_service.get_scan(row["full_name"])
     return {
         "id": row["id"],
         "github_id": row["github_id"],
@@ -114,7 +157,54 @@ def _serialize(row: sqlite3.Row) -> dict[str, Any]:
         "connected_by": row["connected_by"],
         "connected_at": row["connected_at"],
         "updated_at": row["updated_at"],
+        "local_path": row["local_path"],
+        "scan_status": scan.status if scan else "not_scanned",
+        "scan_updated_at": scan.updated_at if scan else None,
+        "scan_completed_at": scan.scan_completed_at if scan else None,
     }
+
+
+
+def _require_connected(owner: str, name: str) -> sqlite3.Row:
+    full_name = f"{owner}/{name}"
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM connected_repositories WHERE full_name = ?",
+            (full_name,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Repository is not connected.")
+    return row
+
+
+
+def _resolve_scan_path(row: sqlite3.Row) -> str:
+    local_path = row["local_path"]
+    if not local_path:
+        raise HTTPException(
+            status_code=409,
+            detail="Repository scan requires a local_path under an allowed scan root.",
+        )
+    return str(local_path)
+
+
+
+def _update_local_path(full_name: str, local_path: str) -> None:
+    with _connect() as connection:
+        connection.execute(
+            "UPDATE connected_repositories SET local_path = ?, updated_at = ? WHERE full_name = ?",
+            (local_path, datetime.now(UTC).isoformat(), full_name),
+        )
+        connection.commit()
+
+
+def _validated_local_path(local_path: str | None) -> str | None:
+    if not local_path:
+        return None
+    try:
+        return str(repository_intelligence_service.validate_local_path(local_path))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("")
@@ -167,6 +257,7 @@ async def connect_repository(
     request: ConnectRepositoryRequest,
     principal: Principal = Depends(require_roles(UserRole.ADMIN)),
 ):
+    local_path = _validated_local_path(request.local_path)
     repository = await _github_get(f"/repos/{request.full_name}")
     now = datetime.now(UTC).isoformat()
     values = (
@@ -181,14 +272,15 @@ async def connect_repository(
         principal.user.id,
         now,
         now,
+        local_path,
     )
     with _connect() as connection:
         connection.execute(
             """
             INSERT INTO connected_repositories (
                 github_id, full_name, owner, name, default_branch, private,
-                html_url, description, connected_by, connected_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                html_url, description, connected_by, connected_at, updated_at, local_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(full_name) DO UPDATE SET
                 github_id=excluded.github_id,
                 owner=excluded.owner,
@@ -198,7 +290,8 @@ async def connect_repository(
                 html_url=excluded.html_url,
                 description=excluded.description,
                 connected_by=excluded.connected_by,
-                updated_at=excluded.updated_at
+                updated_at=excluded.updated_at,
+                local_path=excluded.local_path
             """,
             values,
         )
@@ -208,6 +301,28 @@ async def connect_repository(
         ).fetchone()
         connection.commit()
     return _serialize(row)
+
+
+@router.post("/{owner}/{name}/scan")
+def scan_repository(
+    owner: str,
+    name: str,
+    request: RepositoryScanRequest,
+    _: Principal = Depends(require_roles(UserRole.ADMIN, UserRole.DEVELOPER)),
+):
+    row = _require_connected(owner, name)
+    full_name = f"{owner}/{name}"
+    if request.local_path:
+        validated_local_path = _validated_local_path(request.local_path)
+        assert validated_local_path is not None
+        _update_local_path(full_name, validated_local_path)
+        row = _require_connected(owner, name)
+    local_path = _resolve_scan_path(row)
+    scan = repository_intelligence_service.scan_repository(full_name, local_path)
+    if scan.status == "error":
+        raise HTTPException(status_code=400, detail=scan.error or "Repository scan failed.")
+    _update_local_path(full_name, local_path)
+    return scan.model_dump(mode="json")
 
 
 @router.delete("/{owner}/{name}", status_code=204)
@@ -242,6 +357,7 @@ async def repository_status(
     if row is None:
         raise HTTPException(status_code=404, detail="Repository is not connected.")
     repository = await _github_get(f"/repos/{full_name}")
+    intelligence = repository_intelligence_service.get_scan(full_name)
     return {
         "connected": True,
         "repository": _serialize(row),
@@ -253,4 +369,98 @@ async def repository_status(
             "open_issues_count": repository["open_issues_count"],
             "pushed_at": repository["pushed_at"],
         },
+        "intelligence": (
+            {
+                "status": intelligence.status,
+                "scan_started_at": intelligence.scan_started_at,
+                "scan_completed_at": intelligence.scan_completed_at,
+                "updated_at": intelligence.updated_at,
+                "error": intelligence.error,
+                "local_path": intelligence.local_path,
+                "summary": (
+                    intelligence.payload.summary.model_dump(mode="json")
+                    if intelligence.payload is not None
+                    else None
+                ),
+                "architecture": (
+                    [item.model_dump(mode="json") for item in intelligence.payload.architecture]
+                    if intelligence.payload is not None
+                    else []
+                ),
+            }
+            if intelligence is not None
+            else {
+                "status": "not_scanned",
+                "scan_started_at": None,
+                "scan_completed_at": None,
+                "updated_at": None,
+                "error": None,
+                "local_path": row["local_path"],
+                "summary": None,
+                "architecture": [],
+            }
+        ),
     }
+
+
+@router.get("/{owner}/{name}/summary")
+def repository_summary(
+    owner: str,
+    name: str,
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    record = repository_intelligence_service.get_scan(f"{owner}/{name}")
+    if record is None or record.payload is None or record.status != "ready":
+        raise HTTPException(status_code=404, detail="Repository summary is not available. Scan the repository first.")
+    return record.payload.summary.model_dump(mode="json")
+
+
+@router.get("/{owner}/{name}/tree")
+def repository_tree(
+    owner: str,
+    name: str,
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    record = repository_intelligence_service.get_scan(f"{owner}/{name}")
+    if record is None or record.payload is None or record.status != "ready":
+        raise HTTPException(status_code=404, detail="Repository tree is not available. Scan the repository first.")
+    return record.payload.directory_tree.model_dump(mode="json")
+
+
+@router.get("/{owner}/{name}/symbols", response_model=SymbolLookupResponse)
+def symbol_lookup(
+    owner: str,
+    name: str,
+    q: str | None = Query(default=None, min_length=1, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    record = repository_intelligence_service.get_scan(f"{owner}/{name}")
+    if record is None or record.payload is None or record.status != "ready":
+        raise HTTPException(status_code=404, detail="Repository symbols are not available. Scan the repository first.")
+    query = q.lower() if q else None
+    symbols = [
+        symbol.model_dump(mode="json")
+        for symbol in record.payload.symbols
+        if query is None
+        or query in symbol.name.lower()
+        or query in symbol.qualified_name.lower()
+        or query in symbol.file_path.lower()
+    ]
+    return SymbolLookupResponse(count=len(symbols), symbols=symbols[:limit])
+
+
+@router.get("/{owner}/{name}/dependency-graph")
+def dependency_graph(
+    owner: str,
+    name: str,
+    _: Principal = Depends(get_current_principal),
+):
+    _require_connected(owner, name)
+    record = repository_intelligence_service.get_scan(f"{owner}/{name}")
+    if record is None or record.payload is None or record.status != "ready":
+        raise HTTPException(status_code=404, detail="Repository dependency graph is not available. Scan the repository first.")
+    return record.payload.dependency_graph.model_dump(mode="json")

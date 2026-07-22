@@ -9,6 +9,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
+from app.services.task_workspaces import (
+    WorkspaceApprovalRequest,
+    WorkspaceCreateRequest,
+    WorkspaceRollbackRequest,
+    WorkspaceValidationRequest,
+    WorkspaceProposalRequest,
+    workspace_service,
+)
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -203,6 +211,14 @@ class ChangeTaskOrchestrator:
         self.register_action("echo", self._echo)
         self.register_action("assert", self._assert)
         self.register_action("record", self._record)
+        self.register_action("workspace.create", self._workspace_create)
+        self.register_action("workspace.inspect", self._workspace_inspect)
+        self.register_action("workspace.propose", self._workspace_propose)
+        self.register_action("workspace.diff", self._workspace_diff)
+        self.register_action("workspace.request_approval", self._workspace_request_approval)
+        self.register_action("workspace.apply", self._workspace_apply)
+        self.register_action("workspace.validate", self._workspace_validate)
+        self.register_action("workspace.rollback", self._workspace_rollback)
 
     @staticmethod
     def _echo(parameters: dict[str, Any]) -> dict[str, Any]:
@@ -220,6 +236,86 @@ class ChangeTaskOrchestrator:
     @staticmethod
     def _record(parameters: dict[str, Any]) -> dict[str, Any]:
         return {"recorded": parameters}
+
+    @staticmethod
+    def _workspace_create(parameters: dict[str, Any]) -> dict[str, Any]:
+        request = WorkspaceCreateRequest.model_validate(parameters)
+        return workspace_service.create_workspace(request).public()
+
+    @staticmethod
+    def _workspace_inspect(parameters: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = str(parameters["workspace_id"])
+        action = str(parameters.get("inspect", "list"))
+        if action == "list":
+            return workspace_service.list_files(workspace_id, limit=int(parameters.get("limit", 500)))
+        if action == "read":
+            return workspace_service.read_file(
+                workspace_id,
+                str(parameters["path"]),
+                max_bytes=parameters.get("max_bytes"),
+            )
+        if action == "range":
+            return workspace_service.read_file_range(
+                workspace_id,
+                str(parameters["path"]),
+                start_line=int(parameters.get("start_line", 1)),
+                end_line=int(parameters.get("end_line", -1)),
+            )
+        if action == "search":
+            return workspace_service.search(
+                workspace_id,
+                str(parameters["query"]),
+                glob_pattern=parameters.get("glob"),
+                case_sensitive=bool(parameters.get("case_sensitive", False)),
+                limit=int(parameters.get("limit", 100)),
+            )
+        if action == "status":
+            return workspace_service.git_status(workspace_id)
+        raise TaskOrchestrationError(f"Unsupported workspace inspect action: {action}")
+
+    @staticmethod
+    def _workspace_propose(parameters: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = str(parameters["workspace_id"])
+        requests = [
+            WorkspaceProposalRequest.model_validate(item)
+            for item in parameters.get("proposals", [])
+        ]
+        if not requests:
+            raise TaskOrchestrationError("At least one workspace proposal is required")
+        return workspace_service.upsert_proposals(workspace_id, requests).public()
+
+    @staticmethod
+    def _workspace_diff(parameters: dict[str, Any]) -> dict[str, Any]:
+        return workspace_service.get_diff(
+            str(parameters["workspace_id"]),
+            proposal_id=parameters.get("proposal_id"),
+            full=bool(parameters.get("full", False)),
+        )
+
+    @staticmethod
+    def _workspace_request_approval(parameters: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = str(parameters["workspace_id"])
+        request = WorkspaceApprovalRequest.model_validate(parameters)
+        return workspace_service.mark_awaiting_approval(
+            workspace_id,
+            note=request.note,
+        ).public()
+
+    @staticmethod
+    def _workspace_apply(parameters: dict[str, Any]) -> dict[str, Any]:
+        return workspace_service.apply(str(parameters["workspace_id"])).public()
+
+    @staticmethod
+    def _workspace_validate(parameters: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = str(parameters["workspace_id"])
+        request = WorkspaceValidationRequest.model_validate(parameters)
+        return workspace_service.run_validation(workspace_id, request)
+
+    @staticmethod
+    def _workspace_rollback(parameters: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = str(parameters["workspace_id"])
+        request = WorkspaceRollbackRequest.model_validate(parameters)
+        return workspace_service.rollback(workspace_id, reason=request.reason).public()
 
     def register_action(
         self,
@@ -414,6 +510,11 @@ class ChangeTaskOrchestrator:
                         self._event(task, "task_failed", {"step_id": step.id})
                         return self.store.save(task)
                 self.store.save(task)
+
+                if step.action == "workspace.request_approval":
+                    task.status = TaskStatus.PAUSED
+                    self._event(task, "task_paused", {"step_id": step.id, "reason": "awaiting_approval"})
+                    return self.store.save(task)
 
             task.completed_at = utc_now()
             task.status = TaskStatus.FAILED if failures else TaskStatus.SUCCEEDED

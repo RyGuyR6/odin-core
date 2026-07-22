@@ -27,6 +27,9 @@ def test_change_tasks_require_authentication(tmp_path: Path) -> None:
     response = client.get("/change-tasks")
     assert response.status_code == 401
 
+    workspace_response = client.get("/change-tasks/workspaces")
+    assert workspace_response.status_code == 401
+
     unique_username = f"admin-{os.getpid()}-{tmp_path.name}"
     user = auth_service.create_user(
         username=unique_username,
@@ -41,3 +44,10 @@ def test_change_tasks_require_authentication(tmp_path: Path) -> None:
     )
     assert response.status_code == 200
     assert response.json() == []
+
+    workspace_response = client.get(
+        "/change-tasks/workspaces",
+        headers={"X-API-Key": api_key},
+    )
+    assert workspace_response.status_code == 200
+    assert workspace_response.json() == {"workspaces": []}
