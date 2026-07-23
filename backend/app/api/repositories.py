@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from odin_shared.sqlite_persistence import connect_sqlite, resolve_sqlite_database_path
 
 from app.auth import Principal, UserRole, get_current_principal, require_roles
+from app.services.engineering_intelligence import engineering_intelligence_service
 from app.services.repository_context import repository_context_service
 from app.services.repository_graph import repository_graph_service
 from app.services.repository_intelligence import repository_intelligence_service
@@ -649,3 +650,23 @@ def dependency_graph(
             detail="Repository dependency graph is not available. Scan the repository first.",
         )
     return record.payload.dependency_graph.model_dump(mode="json")
+
+
+@router.get("/{owner}/{name}/engineering-analysis")
+def engineering_analysis(
+    owner: str,
+    name: str,
+    path: list[str] = Query(default=[]),
+    objective: str | None = Query(default=None, max_length=2000),
+    _: Principal = Depends(get_current_principal),
+):
+    """Return evidence-backed engineering findings for an indexed repository."""
+    _require_connected(owner, name)
+    try:
+        return engineering_intelligence_service.analyze(
+            f"{owner}/{name}",
+            paths=path,
+            objective=objective,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

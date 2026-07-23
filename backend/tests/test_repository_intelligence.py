@@ -306,3 +306,14 @@ def test_repository_intelligence_api_endpoints(tmp_path: Path, monkeypatch) -> N
     )
     assert impact.status_code == 200
     assert "backend/app/main.py" in impact.json()["dependents"]
+
+    engineering = client.get(
+        "/api/repositories/acme/repo/engineering-analysis",
+        params=[
+            ("path", "backend/app/service.py"),
+            ("objective", "Change the health service"),
+        ],
+    )
+    assert engineering.status_code == 200
+    assert engineering.json()["repository"] == "acme/repo"
+    assert "backend/app/main.py" in engineering.json()["impact"]["direct_dependents"]

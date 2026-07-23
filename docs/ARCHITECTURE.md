@@ -56,6 +56,12 @@ Application services coordinate use cases, transactions, approvals, and executio
 
 The planner, engineering planner, brain pipeline, and repository intelligence services turn goals and repository context into executable work. These components should share canonical context and avoid duplicate planning paths.
 
+Engineering Intelligence consumes the canonical Repository Intelligence index
+to produce evidence-backed architecture, pattern, complexity, technical-debt,
+refactoring, impact, and risk reports. It is exposed through repository APIs and
+the read-only `engineering.analyze` execution handler, allowing OIC-014 plans to
+reason about change scope before workspace mutation. See `docs/OIC-015.md`.
+
 ### Execution and Validation
 
 `app.execution` is the canonical durable autonomous execution domain. It persists runs,
