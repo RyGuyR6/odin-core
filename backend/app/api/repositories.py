@@ -21,6 +21,7 @@ from app.services.repository_intelligence import repository_intelligence_service
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
 
 GITHUB_API = "https://api.github.com"
+DB_PATH: Path | None = None
 
 
 class ConnectRepositoryRequest(BaseModel):
@@ -62,7 +63,7 @@ class RepositorySearchResponse(BaseModel):
 
 
 def resolve_repository_database_path() -> Path:
-    return resolve_sqlite_database_path("ODIN_REPOSITORY_DB", "ODIN_AUTH_DB")
+    return DB_PATH.resolve() if DB_PATH is not None else resolve_sqlite_database_path("ODIN_REPOSITORY_DB", "ODIN_AUTH_DB")
 
 
 def _ensure_connected_schema(connection: sqlite3.Connection) -> None:

@@ -19,6 +19,8 @@ class MemorySettings:
 
 def get_memory_settings() -> MemorySettings:
     settings = MemorySettings()
-    if settings.embedding_dimensions < 32: raise ValueError("ODIN_MEMORY_EMBEDDING_DIMENSIONS must be at least 32")
-    if settings.chunk_overlap >= settings.chunk_size: raise ValueError("Chunk overlap must be smaller than chunk size")
+    if settings.embedding_dimensions < 32:
+        raise ValueError("ODIN_MEMORY_EMBEDDING_DIMENSIONS must be at least 32")
+    if settings.chunk_overlap >= settings.chunk_size:
+        raise ValueError("Chunk overlap must be smaller than chunk size")
     return settings

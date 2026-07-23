@@ -26,9 +26,11 @@ from app.repositories.indexer import RepositoryIndexer
 from app.repositories.security import safe_child
 from odin_shared.sqlite_persistence import connect_sqlite, resolve_sqlite_database_path
 
+DB_PATH: Path | None = None
+
 
 def resolve_repository_database_path() -> Path:
-    return resolve_sqlite_database_path("ODIN_REPOSITORY_DB", "ODIN_AUTH_DB")
+    return DB_PATH.resolve() if DB_PATH is not None else resolve_sqlite_database_path("ODIN_REPOSITORY_DB", "ODIN_AUTH_DB")
 ENTRYPOINT_NAMES = {
     "main.py",
     "__main__.py",
