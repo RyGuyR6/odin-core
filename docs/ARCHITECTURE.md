@@ -108,7 +108,8 @@ Before introducing a new service or workflow, inspect Repository Intelligence, E
 
 `AutonomousGitService` is the policy boundary over the existing repository and
 GitHub services. It binds operations to immutable workspace state, protects
-release branches, verifies persisted SHA-bound validation before commits, binds
+release branches, verifies persisted SHA- and working-tree-bound validation
+before commits, binds
 remote mutations to the workspace's configured GitHub repository and published
 branch SHA, and delegates
 approval-gated remote mutations to OIC-014 execution handlers. GitHub pull

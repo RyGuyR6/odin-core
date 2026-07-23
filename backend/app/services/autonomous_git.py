@@ -53,21 +53,25 @@ class AutonomousGitService:
             store.save(record)
 
     def _persisted_validation(
-        self, record: Any, expected_head_sha: str
+        self, record: Any, path: Any, expected_head_sha: str
     ) -> dict[str, Any]:
+        current_fingerprint = self.repositories.working_tree_fingerprint(path)
         matching = [
             run
             for run in record.validation_runs
             if run.head_sha == expected_head_sha
+            and getattr(run, "working_tree_fingerprint", None)
+            == current_fingerprint
         ]
         if not matching or any(run.status != "succeeded" for run in matching):
             raise AutonomousGitError(
-                "A persisted successful workspace validation for the exact HEAD is required"
+                "A persisted successful workspace validation for the exact working tree is required"
             )
         latest_timestamp = max(run.timestamp for run in matching)
         return {
             "status": "passed",
             "head_sha": expected_head_sha,
+            "working_tree_fingerprint": current_fingerprint,
             "run_ids": [run.id for run in matching],
             "validated_at": latest_timestamp,
         }
@@ -162,7 +166,9 @@ class AutonomousGitService:
         branch = self._require_feature_branch(
             self.repositories.git.current_branch(path)
         )
-        validation = self._persisted_validation(record, context.expected_head_sha)
+        validation = self._persisted_validation(
+            record, path, context.expected_head_sha
+        )
         status = self.repositories.git.status(path)
         if status.clean:
             raise AutonomousGitError("Workspace has no changes to commit")
@@ -280,7 +286,9 @@ class AutonomousGitService:
         version = version.strip()
         if not version or any(character.isspace() for character in version):
             raise AutonomousGitError("A whitespace-free release version is required")
-        validation = self._persisted_validation(record, context.expected_head_sha)
+        validation = self._persisted_validation(
+            record, path, context.expected_head_sha
+        )
         if not self.repositories.git.status(path).clean:
             raise AutonomousGitError("Release preparation requires a clean workspace")
         return {

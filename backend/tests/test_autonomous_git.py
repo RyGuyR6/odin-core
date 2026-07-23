@@ -13,6 +13,7 @@ from app.services.autonomous_git import (
     AutonomousGitService,
     GitOperationContext,
 )
+from app.services.task_workspaces import TaskWorkspaceService
 
 
 def _git(path: Path, *args: str) -> str:
@@ -49,6 +50,7 @@ def autonomous_git(tmp_path: Path, monkeypatch):
 
     class Workspaces:
         git = manager.git
+        working_tree_fingerprint = TaskWorkspaceService.working_tree_fingerprint
 
         def get_workspace(self, workspace_id):
             assert workspace_id == workspace.id
@@ -99,7 +101,8 @@ def test_commit_requires_current_successful_validation(autonomous_git):
     record.validation_runs.append(
         SimpleNamespace(
             id="forged-failed", timestamp="2026-07-23T00:00:00+00:00",
-            status="failed", head_sha=context.expected_head_sha
+            status="failed", head_sha=context.expected_head_sha,
+            working_tree_fingerprint=service.repositories.working_tree_fingerprint(path),
         )
     )
     with pytest.raises(AutonomousGitError, match="persisted successful"):
@@ -108,6 +111,27 @@ def test_commit_requires_current_successful_validation(autonomous_git):
     result = service.commit(context, message="change")
     assert result["branch"] == "agent/validated"
     assert result["sha"] != context.expected_head_sha
+
+
+def test_commit_rejects_working_tree_changed_after_validation(autonomous_git):
+    service, manager, workspace, record, _ = autonomous_git
+    context = _context(manager, workspace)
+    service.create_branch(context, branch="agent/fingerprint")
+    _, path = manager.require(workspace.id)
+    target = path / "README.md"
+    target.write_text("validated\n", encoding="utf-8")
+    record.validation_runs.append(
+        SimpleNamespace(
+            id="validated-tree",
+            timestamp="2026-07-23T00:00:00+00:00",
+            status="succeeded",
+            head_sha=context.expected_head_sha,
+            working_tree_fingerprint=service.repositories.working_tree_fingerprint(path),
+        )
+    )
+    target.write_text("changed after validation\n", encoding="utf-8")
+    with pytest.raises(AutonomousGitError, match="exact working tree"):
+        service.commit(context, message="must fail")
 
 
 def test_remote_mutations_require_approval(autonomous_git):
@@ -183,7 +207,10 @@ def test_release_preparation_is_non_mutating_and_sha_bound(autonomous_git):
     record.validation_runs.append(
         SimpleNamespace(
             id="release-validation", timestamp="2026-07-23T00:00:00+00:00",
-            status="succeeded", head_sha=context.expected_head_sha
+            status="succeeded", head_sha=context.expected_head_sha,
+            working_tree_fingerprint=service.repositories.working_tree_fingerprint(
+                manager.require(workspace.id)[1]
+            ),
         )
     )
     plan = service.prepare_release(
