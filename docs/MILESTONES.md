@@ -150,7 +150,7 @@
 # Phase II — Autonomous Engineering
 
 ## OIC-014 — Autonomous Execution Loop
-**Status:** In Progress
+**Status:** Complete
 
 ### Goal
 
@@ -183,6 +183,7 @@ Odin can autonomously:
 ---
 
 ## OIC-015 — Engineering Intelligence
+**Status:** Complete
 
 ### Goal
 
@@ -197,6 +198,12 @@ Teach Odin to reason like a senior software engineer.
 - Complexity Analysis
 - Risk Assessment
 - Dependency Impact Analysis
+
+### Success Criteria
+
+Odin can produce a deterministic, evidence-backed engineering report for an
+indexed repository, assess the impact and risk of targeted changes, recommend
+validation, and pass the report into the autonomous execution loop.
 
 ---
 

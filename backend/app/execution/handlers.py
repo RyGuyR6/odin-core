@@ -12,6 +12,7 @@ from app.services.task_workspaces import (
     WorkspaceValidationRequest,
     workspace_service,
 )
+from app.services.engineering_intelligence import engineering_intelligence_service
 
 
 class HandlerRegistry:
@@ -33,6 +34,7 @@ class HandlerRegistry:
         self.register("workspace.apply", self._workspace_apply)
         self.register("workspace.validate", self._workspace_validate)
         self.register("workspace.rollback", self._workspace_rollback)
+        self.register("engineering.analyze", self._engineering_analyze)
 
     def register(self, kind: str, handler: StepHandler) -> None:
         normalized = kind.strip()
@@ -167,3 +169,26 @@ class HandlerRegistry:
         return workspace_service.rollback(
             str(step.parameters["workspace_id"]), reason=request.reason
         ).public()
+
+    @staticmethod
+    def _engineering_analyze(
+        step: ExecutionStep, run: ExecutionRun
+    ) -> dict[str, Any]:
+        repository = str(
+            step.parameters.get("repository")
+            or run.context.get("repository")
+            or ""
+        ).strip()
+        if not repository:
+            raise NonRetryableExecutionError(
+                "engineering.analyze requires a repository name"
+            )
+        try:
+            report = engineering_intelligence_service.analyze(
+                repository,
+                paths=[str(path) for path in step.parameters.get("paths", [])],
+                objective=step.parameters.get("objective") or run.goal,
+            )
+        except ValueError as exc:
+            raise NonRetryableExecutionError(str(exc)) from exc
+        return report.model_dump(mode="json")
