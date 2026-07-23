@@ -103,19 +103,23 @@ Before creating new systems, inspect existing implementations and reuse them whe
 
 ## Current Assessment
 
-The repository audit indicates:
+OIC-014 now provides a canonical backend execution domain with:
 
-- The execution pipeline is partially implemented.
-- Planning exists.
-- Execution is incomplete.
-- The task executor currently supports limited actions.
-- There is no durable execution state.
-- There is no execution queue.
-- There is no retry engine.
-- There is no approval workflow.
-- There is no resume support.
+- Durable SQLite run, step, attempt, approval, artifact, event, and queue records.
+- Atomic queue claims with worker leases and expired-worker recovery.
+- Dependency-aware multi-step execution.
+- Bounded retry with persisted exponential backoff.
+- Human approval checkpoints before handlers execute.
+- Cancellation, restart-safe resume, progress, and correlated operational events.
+- Workspace handlers that retain `TaskWorkspaceService` as the only repository mutation
+  boundary.
 
-The goal is to complete the architecture rather than replace it.
+Planning and repository intelligence predate OIC-014 but still require a production
+planner adapter that emits validated execution plans. Live unattended autonomy also
+requires tool, time, token, and cost accounting in the LLM/tool handlers. The legacy
+`odin_mcp` executor remains compatibility/prototype code and is not the durable authority.
+
+The goal remains to complete and connect the architecture rather than replace it.
 
 ## Engineering Rules
 

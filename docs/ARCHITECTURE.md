@@ -58,7 +58,14 @@ The planner, engineering planner, brain pipeline, and repository intelligence se
 
 ### Execution and Validation
 
-The task executor performs bounded actions. Validation services verify outcomes before tasks advance or changes are presented for approval.
+`app.execution` is the canonical durable autonomous execution domain. It persists runs,
+steps, attempts, approvals, events, and leased queue entries in SQLite. The controller
+enforces dependencies, bounded retries, cancellation, recovery, and approval pauses.
+Typed handlers perform bounded actions; workspace handlers route every repository change
+through `TaskWorkspaceService`. Validation services verify outcomes before tasks advance.
+
+The `/change-tasks` API remains a compatibility surface during migration. The
+`odin_mcp` autonomous executor is not an authoritative production state machine.
 
 ### Infrastructure
 
