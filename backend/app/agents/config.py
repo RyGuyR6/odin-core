@@ -4,15 +4,12 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from odin_shared.sqlite_persistence import resolve_sqlite_database_path
+
 
 @dataclass(slots=True)
 class AgentSettings:
-    database_path: Path = field(default_factory=lambda: Path(
-        os.getenv(
-            "ODIN_AGENTS_DB",
-            Path(__file__).resolve().parents[2] / "data" / "agents.db",
-        )
-    ))
+    database_path: Path = field(default_factory=lambda: resolve_sqlite_database_path("ODIN_AGENTS_DB"))
     default_timeout_seconds: int = field(
         default_factory=lambda: int(os.getenv("ODIN_AGENT_TIMEOUT_SECONDS", "300"))
     )

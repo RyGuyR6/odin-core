@@ -3,9 +3,11 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from odin_shared.sqlite_persistence import resolve_sqlite_database_path
+
 @dataclass(slots=True)
 class MemorySettings:
-    database_path: Path = field(default_factory=lambda: Path(os.getenv("ODIN_MEMORY_DB", Path(__file__).resolve().parents[2] / "data" / "memory.db")))
+    database_path: Path = field(default_factory=resolve_sqlite_database_path)
     embedding_provider: str = field(default_factory=lambda: os.getenv("ODIN_MEMORY_EMBEDDING_PROVIDER", "local-hash"))
     embedding_model: str = field(default_factory=lambda: os.getenv("ODIN_MEMORY_EMBEDDING_MODEL", "odin-hash-v1"))
     embedding_dimensions: int = field(default_factory=lambda: int(os.getenv("ODIN_MEMORY_EMBEDDING_DIMENSIONS", "256")))
@@ -17,6 +19,8 @@ class MemorySettings:
 
 def get_memory_settings() -> MemorySettings:
     settings = MemorySettings()
-    if settings.embedding_dimensions < 32: raise ValueError("ODIN_MEMORY_EMBEDDING_DIMENSIONS must be at least 32")
-    if settings.chunk_overlap >= settings.chunk_size: raise ValueError("Chunk overlap must be smaller than chunk size")
+    if settings.embedding_dimensions < 32:
+        raise ValueError("ODIN_MEMORY_EMBEDDING_DIMENSIONS must be at least 32")
+    if settings.chunk_overlap >= settings.chunk_size:
+        raise ValueError("Chunk overlap must be smaller than chunk size")
     return settings

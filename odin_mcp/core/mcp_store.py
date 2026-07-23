@@ -9,6 +9,7 @@ import json
 import sqlite3
 
 from odin_mcp.core.mcp_models import TaskRecord, utc_now
+from odin_shared.sqlite_persistence import connect_sqlite
 
 
 class TaskNotFoundError(LookupError):
@@ -27,11 +28,8 @@ class SQLiteTaskStore:
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.database_path, timeout=30)
-        connection.row_factory = sqlite3.Row
+        connection = connect_sqlite(self.database_path)
         try:
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA journal_mode = WAL")
             yield connection
             connection.commit()
         except Exception:

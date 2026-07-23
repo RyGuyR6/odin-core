@@ -3,6 +3,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from odin_shared.sqlite_persistence import resolve_sqlite_database_path
+
 def _bool(name: str, default: bool) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -11,9 +13,9 @@ class RepositorySettings:
     workspace_root: Path = field(default_factory=lambda: Path(
         os.getenv("ODIN_REPOSITORY_WORKSPACE_ROOT", Path(__file__).resolve().parents[3] / ".odin-workspaces" / "repositories")
     ).resolve())
-    database_path: Path = field(default_factory=lambda: Path(
-        os.getenv("ODIN_REPOSITORY_DB", Path(__file__).resolve().parents[2] / "data" / "repositories.db")
-    ).resolve())
+    database_path: Path = field(
+        default_factory=lambda: resolve_sqlite_database_path("ODIN_REPOSITORY_DB", "ODIN_AUTH_DB")
+    )
     command_timeout_seconds: float = field(default_factory=lambda: float(os.getenv("ODIN_GIT_TIMEOUT_SECONDS", "120")))
     max_file_bytes: int = field(default_factory=lambda: int(os.getenv("ODIN_REPOSITORY_MAX_FILE_BYTES", "2000000")))
     max_index_files: int = field(default_factory=lambda: int(os.getenv("ODIN_REPOSITORY_MAX_INDEX_FILES", "20000")))

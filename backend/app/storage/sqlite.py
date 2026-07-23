@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 from app.storage.base import StorageBackend, StorageRecord, utc_now_iso
+from odin_shared.sqlite_persistence import connect_sqlite
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL);
@@ -19,10 +20,7 @@ class SQLiteBackend(StorageBackend):
     def __init__(self,database_path: str|Path):
         self.database_path=Path(database_path).expanduser().resolve(); self._lock=threading.RLock(); self._initialized=False
     def _connect(self):
-        self.database_path.parent.mkdir(parents=True,exist_ok=True)
-        c=sqlite3.connect(self.database_path,timeout=30,check_same_thread=False); c.row_factory=sqlite3.Row
-        c.execute('PRAGMA foreign_keys=ON'); c.execute('PRAGMA journal_mode=WAL'); c.execute('PRAGMA synchronous=NORMAL'); c.execute('PRAGMA busy_timeout=30000')
-        return c
+        return connect_sqlite(self.database_path, check_same_thread=False, synchronous="NORMAL", busy_timeout_ms=30000)
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
         c=self._connect()
