@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import threading
 from typing import Any
 
 from app.execution.events import ExecutionEvents
@@ -16,7 +18,39 @@ from app.execution.models import (
     utc_now,
 )
 from app.execution.persistence import ExecutionStore
-from app.execution.policies import RetryPolicy
+from app.execution.policies import NonRetryableExecutionError, RetryPolicy
+
+
+class _LeaseHeartbeat:
+    def __init__(
+        self,
+        store: ExecutionStore,
+        claim: QueueClaim,
+        *,
+        lease_seconds: int = 30,
+        interval_seconds: float = 10.0,
+    ):
+        self.store = store
+        self.claim = claim
+        self.lease_seconds = lease_seconds
+        self.interval_seconds = interval_seconds
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval_seconds):
+            if not self.store.heartbeat(self.claim, self.lease_seconds):
+                return
+
+    def __exit__(self, *_):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=max(1.0, self.interval_seconds * 2))
 
 
 class ExecutionController:
@@ -28,10 +62,14 @@ class ExecutionController:
         *,
         handlers: HandlerRegistry | None = None,
         events: ExecutionEvents | None = None,
+        lease_seconds: int = 30,
+        heartbeat_seconds: float = 10.0,
     ):
         self.store = store
         self.handlers = handlers or HandlerRegistry()
         self.events = events or ExecutionEvents(store)
+        self.lease_seconds = lease_seconds
+        self.heartbeat_seconds = heartbeat_seconds
 
     def _publish(
         self, event_type: str, run_id: str, payload: dict[str, Any] | None = None
@@ -87,20 +125,34 @@ class ExecutionController:
             {"step_id": step.id, "attempt": attempt.number},
         )
 
+        resolved_step = replace(
+            step, parameters=self._resolve_parameters(run.id, step.parameters)
+        )
         try:
-            result = self.handlers.get(step.kind)(step, run)
+            receipt_state, receipt_result = self.store.begin_operation(
+                step, claim.worker_id
+            )
+            if receipt_state == "indeterminate":
+                raise NonRetryableExecutionError(
+                    "Operation outcome is indeterminate after interruption; "
+                    "manual reconciliation is required before retry"
+                )
+            if receipt_state == "completed":
+                result = receipt_result
+            else:
+                with _LeaseHeartbeat(
+                    self.store,
+                    claim,
+                    lease_seconds=self.lease_seconds,
+                    interval_seconds=self.heartbeat_seconds,
+                ):
+                    result = self.handlers.get(step.kind)(resolved_step, run)
+                self.store.complete_operation(step, result)
         except Exception as exc:
             return self._handle_failure(run, step, claim, attempt, exc)
 
-        attempt.status = AttemptStatus.SUCCEEDED
-        attempt.result = result
-        attempt.completed_at = utc_now()
-        step.status = StepStatus.SUCCEEDED
-        step.result = result
-        step.completed_at = attempt.completed_at
-        self.store.finish_attempt(attempt)
-        self.store.update_step(step)
-        self.store.release_claim(claim)
+        if not self.store.complete_success(claim, attempt, result):
+            return self.store.get_run(run.id)
         self._publish(
             "execution.step.succeeded",
             run.id,
@@ -109,27 +161,59 @@ class ExecutionController:
         self._advance(run)
         return self.store.get_run(run.id)
 
+    def _resolve_parameters(self, run_id: str, value: Any) -> Any:
+        """Resolve {"$ref": "step-id.result.path"} values from dependencies."""
+        if isinstance(value, list):
+            return [self._resolve_parameters(run_id, item) for item in value]
+        if isinstance(value, dict):
+            if set(value) == {"$ref"}:
+                reference = str(value["$ref"])
+                parts = reference.split(".")
+                if len(parts) < 2:
+                    raise NonRetryableExecutionError(
+                        f"Invalid step result reference: {reference}"
+                    )
+                source = self.store.get_step(run_id, parts[0])
+                if source.status != StepStatus.SUCCEEDED:
+                    raise NonRetryableExecutionError(
+                        f"Referenced step has not succeeded: {parts[0]}"
+                    )
+                current: Any = source.result
+                path = parts[2:] if parts[1] == "result" else parts[1:]
+                for part in path:
+                    if isinstance(current, dict) and part in current:
+                        current = current[part]
+                    else:
+                        raise NonRetryableExecutionError(
+                            f"Step result reference not found: {reference}"
+                        )
+                return current
+            return {
+                key: self._resolve_parameters(run_id, item)
+                for key, item in value.items()
+            }
+        return value
+
     def _handle_failure(self, run, step, claim, attempt, exc: Exception):
         retry_policy = RetryPolicy(max_attempts=run.limits.max_attempts)
         retryable = retry_policy.should_retry(exc, attempt.number)
-        attempt.status = AttemptStatus.FAILED
-        attempt.error = str(exc)
-        attempt.retryable = retryable
-        attempt.completed_at = utc_now()
-        self.store.finish_attempt(attempt)
-        step.error = str(exc)
-
+        available = None
+        delay = 0.0
         if retryable:
             delay = retry_policy.delay_for(attempt.number)
             available = (
                 datetime.now(timezone.utc) + timedelta(seconds=delay)
             ).isoformat()
-            step.status = StepStatus.RETRY_SCHEDULED
-            run.status = RunStatus.RETRY_SCHEDULED
-            self.store.update_step(step)
-            self.store.update_run(run)
-            self.store.release_claim(claim)
-            self.store.enqueue(run.id, step.id, available_at=available)
+        outcome = self.store.complete_failure(
+            claim,
+            attempt,
+            error=str(exc),
+            retryable=retryable,
+            available_at=available,
+        )
+        if outcome == "lost":
+            return self.store.get_run(run.id)
+        if outcome == "retry":
             self._publish(
                 "execution.step.retry_scheduled",
                 run.id,
@@ -141,14 +225,6 @@ class ExecutionController:
                 },
             )
         else:
-            step.status = StepStatus.FAILED
-            step.completed_at = utc_now()
-            run.status = RunStatus.FAILED
-            run.error = str(exc)
-            run.completed_at = step.completed_at
-            self.store.update_step(step)
-            self.store.update_run(run)
-            self.store.release_claim(claim)
             self._publish(
                 "execution.failed",
                 run.id,

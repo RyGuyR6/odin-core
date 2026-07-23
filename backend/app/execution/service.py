@@ -82,7 +82,14 @@ class ExecutionService:
                     parameters=dict(raw.get("parameters") or {}),
                     depends_on=list(raw.get("depends_on") or []),
                     requires_approval=bool(raw.get("requires_approval", False)),
-                    idempotency_key=raw.get("idempotency_key"),
+                    idempotency_key=(
+                        raw.get("idempotency_key")
+                        or (
+                            f"{run.id}:{step_id}"
+                            if self.controller.handlers.is_mutating(kind)
+                            else None
+                        )
+                    ),
                 )
             )
         for step in normalized:

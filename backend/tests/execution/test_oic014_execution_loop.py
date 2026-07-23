@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import threading
+import time
 
 import pytest
 
@@ -100,6 +102,142 @@ def test_atomic_claim_allows_only_one_worker(service):
     service.create(goal="Claim once", steps=[{"kind": "echo"}])
     assert service.store.claim_next("worker-one") is not None
     assert service.store.claim_next("worker-two") is None
+
+
+def test_atomic_claim_with_simultaneous_workers(service):
+    service.create(goal="Claim concurrently", steps=[{"kind": "echo"}])
+    barrier = threading.Barrier(8)
+    claims = []
+    lock = threading.Lock()
+
+    def claim(number):
+        barrier.wait()
+        value = service.store.claim_next(f"worker-{number}")
+        with lock:
+            claims.append(value)
+
+    threads = [threading.Thread(target=claim, args=(index,)) for index in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sum(item is not None for item in claims) == 1
+
+
+def test_long_handler_renews_lease(tmp_path):
+    started = threading.Event()
+
+    def slow(step, run):
+        started.set()
+        time.sleep(1.4)
+        return {"done": True}
+
+    handlers = HandlerRegistry()
+    handlers.register("slow", slow)
+    service = ExecutionService(
+        ExecutionStore(tmp_path / "executions.db"), handlers=handlers
+    )
+    service.controller.lease_seconds = 1
+    service.controller.heartbeat_seconds = 0.1
+    service.create(goal="Keep lease", steps=[{"kind": "slow"}])
+    result = {}
+    thread = threading.Thread(
+        target=lambda: result.setdefault("run", service.run_next("slow-worker"))
+    )
+    thread.start()
+    assert started.wait(1)
+    time.sleep(1.1)
+    assert service.store.claim_next("other-worker") is None
+    thread.join()
+    assert result["run"]["status"] == "succeeded"
+
+
+def test_cancellation_fences_stale_worker_completion(tmp_path):
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocked(step, run):
+        started.set()
+        release.wait(2)
+        return {"must_not_commit": True}
+
+    handlers = HandlerRegistry()
+    handlers.register("blocked", blocked)
+    service = ExecutionService(
+        ExecutionStore(tmp_path / "executions.db"), handlers=handlers
+    )
+    run = service.create(goal="Cancel in flight", steps=[{"kind": "blocked"}])
+    thread = threading.Thread(target=lambda: service.run_next("worker"))
+    thread.start()
+    assert started.wait(1)
+    service.cancel(run["id"], actor="owner")
+    release.set()
+    thread.join()
+    current = service.get(run["id"])
+    assert current["status"] == "cancelled"
+    assert current["steps"][0]["status"] == "cancelled"
+    assert service.attempts_for(run["id"])[0]["status"] == "cancelled"
+
+
+def test_step_parameters_reference_prior_results(tmp_path):
+    handlers = HandlerRegistry()
+    handlers.register("produce", lambda step, run: {"workspace": {"id": "ws-123"}})
+    handlers.register(
+        "consume", lambda step, run: {"workspace_id": step.parameters["workspace_id"]}
+    )
+    service = ExecutionService(
+        ExecutionStore(tmp_path / "executions.db"), handlers=handlers
+    )
+    run = service.create(
+        goal="Pass workspace result",
+        steps=[
+            {"id": "create", "kind": "produce"},
+            {
+                "id": "inspect",
+                "kind": "consume",
+                "depends_on": ["create"],
+                "parameters": {
+                    "workspace_id": {"$ref": "create.result.workspace.id"}
+                },
+            },
+        ],
+    )
+    completed = drain(service)
+    assert completed["status"] == "succeeded"
+    assert service.get(run["id"])["steps"][1]["result"] == {
+        "workspace_id": "ws-123"
+    }
+
+
+def test_indeterminate_mutation_receipt_fails_closed(tmp_path):
+    calls = []
+    handlers = HandlerRegistry()
+    handlers.register("workspace.create", lambda step, run: calls.append(step.id))
+    service = ExecutionService(
+        ExecutionStore(tmp_path / "executions.db"), handlers=handlers
+    )
+    run = service.create(goal="Do not repeat", steps=[{"kind": "workspace.create"}])
+    claim = service.store.claim_next("dead-worker")
+    step = service.store.get_step(run["id"], claim.step_id)
+    step.status = StepStatus.RUNNING
+    service.store.update_step(step)
+    attempt = service.store.begin_attempt(step, claim.worker_id)
+    step.attempt_count = attempt.number
+    service.store.update_step(step)
+    assert service.store.begin_operation(step, claim.worker_id)[0] == "new"
+    current = service.store.get_run(run["id"])
+    current.status = RunStatus.RUNNING
+    service.store.update_run(current)
+    with service.store.connect() as db:
+        db.execute(
+            "UPDATE execution_queue SET lease_expires_at=? WHERE id=?",
+            ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(), claim.id),
+        )
+    service.controller.recover()
+    completed = service.run_next("recovery-worker")
+    assert completed["status"] == "failed"
+    assert "manual reconciliation" in completed["error"]
+    assert calls == []
 
 
 def test_expired_lease_is_recovered_and_resumed(service):

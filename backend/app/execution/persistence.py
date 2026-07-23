@@ -52,12 +52,14 @@ class ExecutionStore:
         self.initialize()
 
     @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
+    def connect(self, *, begin_mode: str = "DEFERRED") -> Iterator[sqlite3.Connection]:
         db = sqlite3.connect(self.database_path, timeout=30, isolation_level=None)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys = ON")
         db.execute("PRAGMA journal_mode = WAL")
-        db.execute("BEGIN")
+        if begin_mode not in {"DEFERRED", "IMMEDIATE"}:
+            raise ValueError("Unsupported SQLite transaction mode")
+        db.execute(f"BEGIN {begin_mode}")
         try:
             yield db
             db.commit()
@@ -174,6 +176,19 @@ class ExecutionStore:
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (run_id) REFERENCES execution_runs(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS execution_operation_receipts (
+                    run_id TEXT NOT NULL,
+                    step_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    result_json TEXT,
+                    worker_id TEXT,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    PRIMARY KEY (run_id, idempotency_key),
+                    FOREIGN KEY (run_id, step_id)
+                        REFERENCES execution_steps(run_id, id) ON DELETE CASCADE
+                );
                 CREATE INDEX IF NOT EXISTS idx_execution_runs_status
                     ON execution_runs(status, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_execution_queue_available
@@ -242,7 +257,9 @@ class ExecutionStore:
         )
 
     def get_run(self, run_id: str) -> ExecutionRun:
-        with self.connect() as db:
+        # Reserve the writer before selecting so concurrent workers cannot both
+        # observe the same unclaimed row.
+        with self.connect(begin_mode="IMMEDIATE") as db:
             row = db.execute(
                 "SELECT * FROM execution_runs WHERE id = ?", (run_id,)
             ).fetchone()
@@ -329,7 +346,9 @@ class ExecutionStore:
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
         lease = (now + timedelta(seconds=lease_seconds)).isoformat()
-        with self.connect() as db:
+        # Reserve the writer before selecting so concurrent workers cannot both
+        # observe the same unclaimed row.
+        with self.connect(begin_mode="IMMEDIATE") as db:
             row = db.execute(
                 """SELECT q.* FROM execution_queue q
                 JOIN execution_runs r ON r.id=q.run_id
@@ -353,6 +372,18 @@ class ExecutionStore:
             worker_id=worker_id, lease_expires_at=lease,
         )
 
+    def claim_is_active(self, claim: QueueClaim) -> bool:
+        now = utc_now()
+        with self.connect() as db:
+            row = db.execute(
+                """SELECT 1 FROM execution_queue q
+                JOIN execution_runs r ON r.id=q.run_id
+                WHERE q.id=? AND q.claimed_by=? AND q.lease_expires_at>?
+                  AND r.status NOT IN ('cancelled','failed','succeeded')""",
+                (claim.id, claim.worker_id, now),
+            ).fetchone()
+        return row is not None
+
     def heartbeat(self, claim: QueueClaim, lease_seconds: int = 30) -> bool:
         lease = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
         with self.connect() as db:
@@ -363,6 +394,167 @@ class ExecutionStore:
             ).rowcount
         claim.lease_expires_at = lease
         return changed == 1
+
+    def complete_success(
+        self, claim: QueueClaim, attempt: ExecutionAttempt, result: Any
+    ) -> bool:
+        """Commit a result only while this worker still owns a live claim."""
+        now = utc_now()
+        with self.connect(begin_mode="IMMEDIATE") as db:
+            owned = db.execute(
+                """SELECT 1 FROM execution_queue q
+                JOIN execution_runs r ON r.id=q.run_id
+                WHERE q.id=? AND q.claimed_by=? AND q.lease_expires_at>?
+                  AND r.status NOT IN ('cancelled','failed','succeeded')""",
+                (claim.id, claim.worker_id, now),
+            ).fetchone()
+            if owned is None:
+                status = db.execute(
+                    "SELECT status FROM execution_runs WHERE id=?", (claim.run_id,)
+                ).fetchone()
+                attempt_status = (
+                    AttemptStatus.CANCELLED.value
+                    if status and status["status"] == RunStatus.CANCELLED.value
+                    else AttemptStatus.INTERRUPTED.value
+                )
+                db.execute(
+                    """UPDATE execution_attempts SET status=?, error=?,
+                    completed_at=? WHERE id=? AND status='running'""",
+                    (attempt_status, "claim lost before completion", now, attempt.id),
+                )
+                return False
+            db.execute(
+                """UPDATE execution_attempts SET status='succeeded',
+                result_json=?, completed_at=? WHERE id=? AND status='running'""",
+                (_dump(result), now, attempt.id),
+            )
+            db.execute(
+                """UPDATE execution_steps SET status='succeeded', result_json=?,
+                error=NULL, updated_at=?, completed_at=?
+                WHERE run_id=? AND id=? AND status='running'""",
+                (_dump(result), now, now, claim.run_id, claim.step_id),
+            )
+            db.execute(
+                "DELETE FROM execution_queue WHERE id=? AND claimed_by=?",
+                (claim.id, claim.worker_id),
+            )
+        attempt.status = AttemptStatus.SUCCEEDED
+        attempt.result = result
+        attempt.completed_at = now
+        return True
+
+    def complete_failure(
+        self,
+        claim: QueueClaim,
+        attempt: ExecutionAttempt,
+        *,
+        error: str,
+        retryable: bool,
+        available_at: str | None = None,
+    ) -> str:
+        """Fence failure/retry persistence against cancellation and lease loss."""
+        now = utc_now()
+        with self.connect(begin_mode="IMMEDIATE") as db:
+            run_row = db.execute(
+                "SELECT status FROM execution_runs WHERE id=?", (claim.run_id,)
+            ).fetchone()
+            owned = db.execute(
+                """SELECT 1 FROM execution_queue
+                WHERE id=? AND claimed_by=? AND lease_expires_at>?""",
+                (claim.id, claim.worker_id, now),
+            ).fetchone()
+            if (
+                owned is None
+                or run_row is None
+                or run_row["status"] in {"cancelled", "failed", "succeeded"}
+            ):
+                lost_status = (
+                    AttemptStatus.CANCELLED.value
+                    if run_row and run_row["status"] == "cancelled"
+                    else AttemptStatus.INTERRUPTED.value
+                )
+                db.execute(
+                    """UPDATE execution_attempts SET status=?, error=?,
+                    completed_at=? WHERE id=? AND status='running'""",
+                    (lost_status, "claim lost before failure commit", now, attempt.id),
+                )
+                return "lost"
+            db.execute(
+                """UPDATE execution_attempts SET status='failed', error=?,
+                retryable=?, completed_at=? WHERE id=? AND status='running'""",
+                (error, int(retryable), now, attempt.id),
+            )
+            if retryable:
+                db.execute(
+                    """UPDATE execution_steps SET status='retry_scheduled',
+                    error=?, updated_at=? WHERE run_id=? AND id=? AND status='running'""",
+                    (error, now, claim.run_id, claim.step_id),
+                )
+                db.execute(
+                    """UPDATE execution_runs SET status='retry_scheduled',
+                    updated_at=? WHERE id=?""", (now, claim.run_id)
+                )
+                db.execute(
+                    """UPDATE execution_queue SET available_at=?, claimed_by=NULL,
+                    lease_expires_at=NULL WHERE id=? AND claimed_by=?""",
+                    (available_at or now, claim.id, claim.worker_id),
+                )
+                return "retry"
+            db.execute(
+                """UPDATE execution_steps SET status='failed', error=?,
+                updated_at=?, completed_at=? WHERE run_id=? AND id=?
+                AND status='running'""",
+                (error, now, now, claim.run_id, claim.step_id),
+            )
+            db.execute(
+                """UPDATE execution_runs SET status='failed', error=?,
+                updated_at=?, completed_at=? WHERE id=?""",
+                (error, now, now, claim.run_id),
+            )
+            db.execute(
+                "DELETE FROM execution_queue WHERE id=? AND claimed_by=?",
+                (claim.id, claim.worker_id),
+            )
+            return "failed"
+
+    def begin_operation(
+        self, step: ExecutionStep, worker_id: str
+    ) -> tuple[str, Any]:
+        """Return new, completed, or indeterminate for an idempotent operation."""
+        if not step.idempotency_key:
+            return ("new", None)
+        now = utc_now()
+        with self.connect(begin_mode="IMMEDIATE") as db:
+            row = db.execute(
+                """SELECT * FROM execution_operation_receipts
+                WHERE run_id=? AND idempotency_key=?""",
+                (step.run_id, step.idempotency_key),
+            ).fetchone()
+            if row is None:
+                db.execute(
+                    """INSERT INTO execution_operation_receipts
+                    (run_id,step_id,idempotency_key,status,worker_id,started_at)
+                    VALUES (?,?,?,?,?,?)""",
+                    (
+                        step.run_id, step.id, step.idempotency_key,
+                        "running", worker_id, now,
+                    ),
+                )
+                return ("new", None)
+            if row["status"] == "completed":
+                return ("completed", _load(row["result_json"], None))
+            return ("indeterminate", None)
+
+    def complete_operation(self, step: ExecutionStep, result: Any) -> None:
+        if not step.idempotency_key:
+            return
+        with self.connect(begin_mode="IMMEDIATE") as db:
+            db.execute(
+                """UPDATE execution_operation_receipts SET status='completed',
+                result_json=?, completed_at=? WHERE run_id=? AND idempotency_key=?
+                AND status='running'""",
+                (_dump(result), utc_now(), step.run_id, step.idempotency_key),
+            )
 
     def release_claim(self, claim: QueueClaim, *, delete: bool = True) -> None:
         with self.connect() as db:

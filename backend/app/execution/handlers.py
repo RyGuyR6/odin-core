@@ -15,6 +15,12 @@ from app.services.task_workspaces import (
 
 
 class HandlerRegistry:
+    MUTATING_KINDS = {
+        "workspace.create",
+        "workspace.propose",
+        "workspace.apply",
+        "workspace.rollback",
+    }
     def __init__(self) -> None:
         self._handlers: dict[str, StepHandler] = {}
         self.register("echo", self._echo)
@@ -44,6 +50,9 @@ class HandlerRegistry:
 
     def kinds(self) -> list[str]:
         return sorted(self._handlers)
+
+    def is_mutating(self, kind: str) -> bool:
+        return kind in self.MUTATING_KINDS
 
     @staticmethod
     def _echo(step: ExecutionStep, _: ExecutionRun) -> dict[str, Any]:
