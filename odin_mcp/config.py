@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
+from odin_shared.sqlite_persistence import resolve_mcp_database_path
+
 
 def _repo_root() -> Path:
     configured = os.getenv("ODIN_ROOT")
@@ -33,9 +35,7 @@ class MCPSettings:
         return cls(
             repo_root=root,
             data_dir=data_dir,
-            database_path=Path(
-                os.getenv("ODIN_DATABASE_PATH", str(data_dir / "odin.db"))
-            ).expanduser().resolve(),
+            database_path=resolve_mcp_database_path(root, data_dir),
             log_path=Path(
                 os.getenv("ODIN_RUNTIME_LOG_PATH", str(data_dir / "runtime.jsonl"))
             ).expanduser().resolve(),

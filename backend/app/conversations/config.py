@@ -4,15 +4,12 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from odin_shared.sqlite_persistence import resolve_sqlite_database_path
+
 
 @dataclass(slots=True)
 class ConversationSettings:
-    database_path: Path = field(default_factory=lambda: Path(
-        os.getenv(
-            "ODIN_CONVERSATIONS_DB",
-            Path(__file__).resolve().parents[2] / "data" / "conversations.db",
-        )
-    ))
+    database_path: Path = field(default_factory=lambda: resolve_sqlite_database_path("ODIN_CONVERSATIONS_DB"))
     default_history_limit: int = field(
         default_factory=lambda: int(os.getenv("ODIN_CONVERSATION_HISTORY_LIMIT", "40"))
     )

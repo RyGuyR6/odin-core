@@ -22,6 +22,7 @@ from app.repositories.config import get_repository_settings
 from app.repositories.git import GitClient
 from app.repositories.indexer import IGNORE_DIRS, LANGUAGES
 from app.repositories.security import safe_child
+from odin_shared.sqlite_persistence import connect_sqlite, resolve_sqlite_database_path
 
 
 SECRET_PATH_PATTERNS = {
@@ -41,6 +42,10 @@ PROTECTED_WRITE_PATHS = {
     ".git",
     ".git/*",
 }
+
+
+def resolve_repository_database_path() -> Path:
+    return resolve_sqlite_database_path("ODIN_REPOSITORY_DB", "ODIN_AUTH_DB")
 
 
 class WorkspaceServiceError(RuntimeError):
@@ -312,14 +317,11 @@ class TaskWorkspaceService:
         self.max_file_bytes = settings.max_file_bytes
         self.max_diff_chars = int(os.getenv("ODIN_CHANGE_TASK_MAX_DIFF_CHARS", "200000"))
         self.validation_timeout_seconds = int(os.getenv("ODIN_CHANGE_TASK_VALIDATION_TIMEOUT", "600"))
-        self.db_path = db_path or Path(os.getenv("ODIN_REPOSITORY_DB", os.getenv("ODIN_AUTH_DB", "data/odin.db"))).resolve()
+        self.db_path = db_path or resolve_repository_database_path()
         self._lock = threading.RLock()
 
     def _connect(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.db_path)
 
     def _repository_row(self, repository_id: int) -> sqlite3.Row:
         with self._connect() as connection:

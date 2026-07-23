@@ -3,6 +3,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from odin_shared.sqlite_persistence import resolve_sqlite_database_path
+
 def _bool(name: str, default: bool) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -11,9 +13,7 @@ class ToolSettings:
     workspace_root: Path = field(default_factory=lambda: Path(
         os.getenv("ODIN_TOOL_WORKSPACE_ROOT", Path(__file__).resolve().parents[3] / ".odin-workspaces")
     ).resolve())
-    database_path: Path = field(default_factory=lambda: Path(
-        os.getenv("ODIN_TOOL_DB", Path(__file__).resolve().parents[2] / "data" / "tools.db")
-    ).resolve())
+    database_path: Path = field(default_factory=lambda: resolve_sqlite_database_path("ODIN_TOOL_DB"))
     default_timeout_seconds: float = field(default_factory=lambda: float(os.getenv("ODIN_TOOL_TIMEOUT_SECONDS", "30")))
     max_timeout_seconds: float = field(default_factory=lambda: float(os.getenv("ODIN_TOOL_MAX_TIMEOUT_SECONDS", "300")))
     max_output_bytes: int = field(default_factory=lambda: int(os.getenv("ODIN_TOOL_MAX_OUTPUT_BYTES", "1048576")))

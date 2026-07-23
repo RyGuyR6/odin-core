@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import Any,Mapping
 from app.storage.repositories import JobRepository,ContextRepository,PlannerRunRepository
 from app.storage.sqlite import SQLiteBackend
+from odin_shared.sqlite_persistence import resolve_sqlite_database_path
 
 def resolve_database_path():
-    configured=os.getenv('ODIN_DATABASE_PATH') or os.getenv('DATABASE_PATH')
-    return Path(configured).expanduser().resolve() if configured else Path(__file__).resolve().parents[2]/'data'/'odin.db'
+    return resolve_sqlite_database_path("ODIN_DATABASE_PATH", "DATABASE_PATH")
 
 class StorageService:
     def __init__(self,database_path=None):

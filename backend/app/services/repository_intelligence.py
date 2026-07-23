@@ -24,13 +24,11 @@ from app.repositories.config import get_repository_settings
 from app.repositories.git import GitClient
 from app.repositories.indexer import RepositoryIndexer
 from app.repositories.security import safe_child
+from odin_shared.sqlite_persistence import connect_sqlite, resolve_sqlite_database_path
 
-DB_PATH = Path(
-    os.getenv(
-        "ODIN_REPOSITORY_DB",
-        os.getenv("ODIN_AUTH_DB", "data/odin.db"),
-    )
-)
+
+def resolve_repository_database_path() -> Path:
+    return resolve_sqlite_database_path("ODIN_REPOSITORY_DB", "ODIN_AUTH_DB")
 ENTRYPOINT_NAMES = {
     "main.py",
     "__main__.py",
@@ -257,9 +255,7 @@ class RepositoryIntelligenceService:
         self._embedding_cache: dict[str, list[float]] = {}
 
     def _connect(self) -> sqlite3.Connection:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(DB_PATH)
-        connection.row_factory = sqlite3.Row
+        connection = connect_sqlite(resolve_repository_database_path())
         self._initialize(connection)
         return connection
 

@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
+from odin_shared.sqlite_persistence import connect_sqlite, resolve_sqlite_database_path
 
 from app.auth import Principal, UserRole, get_current_principal, require_roles
 from app.services.repository_context import repository_context_service
@@ -19,12 +20,6 @@ from app.services.repository_intelligence import repository_intelligence_service
 
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
 
-DB_PATH = Path(
-    os.getenv(
-        "ODIN_REPOSITORY_DB",
-        os.getenv("ODIN_AUTH_DB", "data/odin.db"),
-    )
-)
 GITHUB_API = "https://api.github.com"
 
 
@@ -66,6 +61,10 @@ class RepositorySearchResponse(BaseModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
 
 
+def resolve_repository_database_path() -> Path:
+    return resolve_sqlite_database_path("ODIN_REPOSITORY_DB", "ODIN_AUTH_DB")
+
+
 def _ensure_connected_schema(connection: sqlite3.Connection) -> None:
     connection.execute("""
         CREATE TABLE IF NOT EXISTS connected_repositories (
@@ -98,9 +97,7 @@ def _ensure_connected_schema(connection: sqlite3.Connection) -> None:
 
 
 def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
+    connection = connect_sqlite(resolve_repository_database_path())
     _ensure_connected_schema(connection)
     return connection
 
