@@ -13,6 +13,13 @@ from app.services.task_workspaces import (
     workspace_service,
 )
 from app.services.engineering_intelligence import engineering_intelligence_service
+from app.repositories.manager import get_repository_manager
+from app.services.autonomous_git import (
+    AutonomousGitError,
+    AutonomousGitService,
+    GitOperationContext,
+)
+from app.services.github import get_github_provider
 
 
 class HandlerRegistry:
@@ -21,6 +28,8 @@ class HandlerRegistry:
         "workspace.propose",
         "workspace.apply",
         "workspace.rollback",
+        "git.push",
+        "git.pull_request",
     }
     def __init__(self) -> None:
         self._handlers: dict[str, StepHandler] = {}
@@ -35,6 +44,12 @@ class HandlerRegistry:
         self.register("workspace.validate", self._workspace_validate)
         self.register("workspace.rollback", self._workspace_rollback)
         self.register("engineering.analyze", self._engineering_analyze)
+        self.register("git.branch", self._git_branch)
+        self.register("git.commit", self._git_commit)
+        self.register("git.push", self._git_push)
+        self.register("git.pull_request", self._git_pull_request)
+        self.register("git.readiness", self._git_readiness)
+        self.register("git.release_plan", self._git_release_plan)
 
     def register(self, kind: str, handler: StepHandler) -> None:
         normalized = kind.strip()
@@ -192,3 +207,104 @@ class HandlerRegistry:
         except ValueError as exc:
             raise NonRetryableExecutionError(str(exc)) from exc
         return report.model_dump(mode="json")
+
+    @staticmethod
+    def _git_service(*, remote: bool = False) -> AutonomousGitService:
+        provider = get_github_provider() if remote else None
+        return AutonomousGitService(get_repository_manager(), provider)
+
+    @staticmethod
+    def _git_context(step: ExecutionStep, run: ExecutionRun) -> GitOperationContext:
+        return GitOperationContext(
+            workspace_id=str(step.parameters["workspace_id"]),
+            expected_head_sha=str(step.parameters["expected_head_sha"]),
+            actor=run.created_by or "execution",
+        )
+
+    @classmethod
+    def _git_branch(cls, step: ExecutionStep, run: ExecutionRun) -> dict[str, Any]:
+        try:
+            return cls._git_service().create_branch(
+                cls._git_context(step, run),
+                branch=str(step.parameters["branch"]),
+            )
+        except AutonomousGitError as exc:
+            raise NonRetryableExecutionError(str(exc)) from exc
+
+    @classmethod
+    def _git_commit(cls, step: ExecutionStep, run: ExecutionRun) -> dict[str, Any]:
+        try:
+            return cls._git_service().commit(
+                cls._git_context(step, run),
+                message=str(step.parameters["message"]),
+                validation=dict(step.parameters.get("validation") or {}),
+                paths=step.parameters.get("paths"),
+            )
+        except AutonomousGitError as exc:
+            raise NonRetryableExecutionError(str(exc)) from exc
+
+    @classmethod
+    def _git_push(cls, step: ExecutionStep, run: ExecutionRun) -> dict[str, Any]:
+        if not step.requires_approval:
+            raise NonRetryableExecutionError(
+                "git.push steps must require execution approval"
+            )
+        try:
+            return cls._git_service().push(
+                cls._git_context(step, run),
+                approved=True,
+                remote=str(step.parameters.get("remote", "origin")),
+            )
+        except AutonomousGitError as exc:
+            raise NonRetryableExecutionError(str(exc)) from exc
+
+    @classmethod
+    def _git_pull_request(
+        cls, step: ExecutionStep, run: ExecutionRun
+    ) -> dict[str, Any]:
+        if not step.requires_approval:
+            raise NonRetryableExecutionError(
+                "git.pull_request steps must require execution approval"
+            )
+        try:
+            return cls._git_service(remote=True).create_draft_pull_request(
+                cls._git_context(step, run),
+                approved=True,
+                owner=str(step.parameters["owner"]),
+                repo=str(step.parameters["repo"]),
+                title=str(step.parameters["title"]),
+                base=str(step.parameters.get("base", "main")),
+                body=str(step.parameters.get("body", "")),
+            )
+        except AutonomousGitError as exc:
+            raise NonRetryableExecutionError(str(exc)) from exc
+
+    @classmethod
+    def _git_readiness(
+        cls, step: ExecutionStep, _: ExecutionRun
+    ) -> dict[str, Any]:
+        try:
+            return cls._git_service(remote=True).readiness(
+                owner=str(step.parameters["owner"]),
+                repo=str(step.parameters["repo"]),
+                number=int(step.parameters["number"]),
+                required_approvals=int(
+                    step.parameters.get("required_approvals", 1)
+                ),
+            )
+        except AutonomousGitError as exc:
+            raise NonRetryableExecutionError(str(exc)) from exc
+
+    @classmethod
+    def _git_release_plan(
+        cls, step: ExecutionStep, run: ExecutionRun
+    ) -> dict[str, Any]:
+        try:
+            return cls._git_service().prepare_release(
+                cls._git_context(step, run),
+                version=str(step.parameters["version"]),
+                validation=dict(step.parameters.get("validation") or {}),
+                notes=str(step.parameters.get("notes", "")),
+            )
+        except AutonomousGitError as exc:
+            raise NonRetryableExecutionError(str(exc)) from exc
