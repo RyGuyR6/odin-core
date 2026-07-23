@@ -76,3 +76,31 @@ def test_report_requires_ready_repository(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(intelligence_module, "DB_PATH", tmp_path / "odin.db")
     with pytest.raises(ValueError, match="not ready"):
         engineering_intelligence_service.analyze("acme/missing")
+
+
+def test_report_rejects_stale_repository_index(tmp_path: Path, monkeypatch) -> None:
+    root = _scan(tmp_path, monkeypatch)
+    (root / "backend/app/service.py").write_text(
+        "def build_message() -> str:\n    return 'changed after scan'\n"
+    )
+
+    with pytest.raises(ValueError, match="index is stale"):
+        engineering_intelligence_service.analyze("acme/repo")
+
+
+def test_transitive_dependents_exclude_direct_dependents(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = _scan(tmp_path, monkeypatch)
+    (root / "backend/app/consumer.py").write_text(
+        "from .main import health\n"
+    )
+    repository_intelligence_service.scan_repository("acme/repo", str(root))
+
+    report = engineering_intelligence_service.analyze(
+        "acme/repo", paths=["backend/app/service.py"]
+    )
+
+    assert "backend/app/main.py" in report.impact.direct_dependents
+    assert "backend/app/main.py" not in report.impact.transitive_dependents
+    assert "backend/app/consumer.py" in report.impact.transitive_dependents

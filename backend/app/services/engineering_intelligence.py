@@ -93,6 +93,7 @@ class EngineeringIntelligenceService:
                 f"Repository intelligence is not ready for {repository}. Scan it first."
             )
         payload = record.payload
+        self._assert_index_fresh(payload)
         inventory_paths = {item.path for item in payload.inventory}
         targets = sorted(set(paths or []))
         unknown = [path for path in targets if path not in inventory_paths]
@@ -167,6 +168,33 @@ class EngineeringIntelligenceService:
                 "findings": len(debt) + len(refactors),
             },
         )
+
+    @staticmethod
+    def _assert_index_fresh(payload: RepositoryIntelligencePayload) -> None:
+        root = Path(payload.local_path)
+        current_revision = repository_intelligence_service._head_revision(root)
+        if (
+            payload.indexed_revision is not None
+            and current_revision is not None
+            and current_revision != payload.indexed_revision
+        ):
+            raise ValueError(
+                "Repository intelligence index is stale. Re-scan the repository "
+                "before running engineering analysis."
+            )
+
+        indexed_files = {
+            item.path: item.sha256 for item in payload.inventory
+        }
+        current_files = {
+            item.path: item.sha256
+            for item in repository_intelligence_service.indexer.build(root)
+        }
+        if current_files != indexed_files:
+            raise ValueError(
+                "Repository intelligence index is stale. Re-scan the repository "
+                "before running engineering analysis."
+            )
 
     def _source_metrics(
         self, payload: RepositoryIntelligencePayload
@@ -417,6 +445,7 @@ class EngineeringIntelligenceService:
                 visited.add(item)
                 transitive.add(item)
                 frontier.append(item)
+        transitive.difference_update(direct_dependents)
         tests = sorted(
             path
             for path in transitive | set(direct_dependents) | set(targets)
