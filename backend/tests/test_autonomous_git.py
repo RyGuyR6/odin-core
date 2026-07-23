@@ -41,8 +41,24 @@ def autonomous_git(tmp_path: Path, monkeypatch):
     workspace = manager.create(
         WorkspaceCreate(name="autonomous-git", local_path=str(source))
     )
-    service = AutonomousGitService(manager)
-    return service, manager, workspace
+    record = SimpleNamespace(
+        id=workspace.id,
+        current_branch="main",
+        validation_runs=[],
+    )
+
+    class Workspaces:
+        git = manager.git
+
+        def get_workspace(self, workspace_id):
+            assert workspace_id == workspace.id
+            return record
+
+        def _workspace_root(self, _record):
+            return Path(workspace.path)
+
+    service = AutonomousGitService(Workspaces())
+    return service, manager, workspace, record, Workspaces()
 
 
 def _context(manager, workspace):
@@ -55,7 +71,7 @@ def _context(manager, workspace):
 
 
 def test_branch_creation_is_sha_bound_and_protects_main(autonomous_git):
-    service, manager, workspace = autonomous_git
+    service, manager, workspace, _, _ = autonomous_git
     context = _context(manager, workspace)
     result = service.create_branch(context, branch="agent/oic-016")
     assert result["branch"] == "agent/oic-016"
@@ -64,7 +80,7 @@ def test_branch_creation_is_sha_bound_and_protects_main(autonomous_git):
 
 
 def test_stale_head_fails_closed(autonomous_git):
-    service, manager, workspace = autonomous_git
+    service, manager, workspace, _, _ = autonomous_git
     context = _context(manager, workspace)
     _, path = manager.require(workspace.id)
     _git(path, "commit", "--allow-empty", "-m", "move head")
@@ -73,30 +89,29 @@ def test_stale_head_fails_closed(autonomous_git):
 
 
 def test_commit_requires_current_successful_validation(autonomous_git):
-    service, manager, workspace = autonomous_git
+    service, manager, workspace, record, _ = autonomous_git
     context = _context(manager, workspace)
     service.create_branch(context, branch="agent/validated")
     _, path = manager.require(workspace.id)
     (path / "README.md").write_text("changed\n", encoding="utf-8")
-    with pytest.raises(AutonomousGitError, match="successful validation"):
-        service.commit(context, message="change", validation={"status": "failed"})
-    with pytest.raises(AutonomousGitError, match="stale"):
-        service.commit(
-            context,
-            message="change",
-            validation={"status": "passed", "head_sha": "wrong"},
+    with pytest.raises(AutonomousGitError, match="persisted successful"):
+        service.commit(context, message="change")
+    record.validation_runs.append(
+        SimpleNamespace(
+            id="forged-failed", timestamp="2026-07-23T00:00:00+00:00",
+            status="failed", head_sha=context.expected_head_sha
         )
-    result = service.commit(
-        context,
-        message="change",
-        validation={"status": "passed", "head_sha": context.expected_head_sha},
     )
+    with pytest.raises(AutonomousGitError, match="persisted successful"):
+        service.commit(context, message="change")
+    record.validation_runs[-1].status = "succeeded"
+    result = service.commit(context, message="change")
     assert result["branch"] == "agent/validated"
     assert result["sha"] != context.expected_head_sha
 
 
 def test_remote_mutations_require_approval(autonomous_git):
-    service, manager, workspace = autonomous_git
+    service, manager, workspace, _, _ = autonomous_git
     context = _context(manager, workspace)
     service.create_branch(context, branch="agent/remote")
     with pytest.raises(AutonomousGitError, match="approved execution"):
@@ -113,15 +128,22 @@ def test_remote_mutations_require_approval(autonomous_git):
 
 
 def test_pull_request_is_always_draft(autonomous_git):
-    _, manager, workspace = autonomous_git
+    _, manager, workspace, _, workspaces = autonomous_git
     context = _context(manager, workspace)
     calls = []
     pull_requests = SimpleNamespace(
         create_pull_request=lambda *args, **kwargs: calls.append((args, kwargs))
         or {"executed": True}
     )
+    branches = SimpleNamespace(
+        get_branch=lambda owner, repo, branch: {
+            "commit": {"sha": context.expected_head_sha}
+        }
+    )
+    _, path = manager.require(workspace.id)
+    _git(path, "remote", "add", "origin", "https://github.com/owner/repo.git")
     service = AutonomousGitService(
-        manager, SimpleNamespace(pull_requests=pull_requests)
+        workspaces, SimpleNamespace(pull_requests=pull_requests, branches=branches)
     )
     service.create_branch(context, branch="agent/pr")
     result = service.create_draft_pull_request(
@@ -156,14 +178,61 @@ def test_readiness_requires_checks_and_reviews():
 
 
 def test_release_preparation_is_non_mutating_and_sha_bound(autonomous_git):
-    service, manager, workspace = autonomous_git
+    service, manager, workspace, record, _ = autonomous_git
     context = _context(manager, workspace)
+    record.validation_runs.append(
+        SimpleNamespace(
+            id="release-validation", timestamp="2026-07-23T00:00:00+00:00",
+            status="succeeded", head_sha=context.expected_head_sha
+        )
+    )
     plan = service.prepare_release(
         context,
         version="v1.0.0",
-        validation={"status": "passed", "head_sha": context.expected_head_sha},
         notes="First release",
     )
     assert plan["tag_created"] is False
     assert plan["release_created"] is False
     assert plan["requires_approval_for_publication"] is True
+
+
+def test_pull_request_rejects_mismatched_repository(autonomous_git):
+    _, manager, workspace, _, workspaces = autonomous_git
+    context = _context(manager, workspace)
+    _, path = manager.require(workspace.id)
+    _git(path, "remote", "add", "origin", "https://github.com/right/repo.git")
+    service = AutonomousGitService(
+        workspaces,
+        SimpleNamespace(
+            branches=SimpleNamespace(get_branch=lambda *args: {}),
+            pull_requests=SimpleNamespace(create_pull_request=lambda *args, **kwargs: {}),
+        ),
+    )
+    service.create_branch(context, branch="agent/mismatch")
+    with pytest.raises(AutonomousGitError, match="does not match"):
+        service.create_draft_pull_request(
+            context, approved=True, owner="wrong", repo="repo",
+            title="Mismatch", base="main"
+        )
+
+
+def test_pull_request_rejects_stale_remote_branch_head(autonomous_git):
+    _, manager, workspace, _, workspaces = autonomous_git
+    context = _context(manager, workspace)
+    _, path = manager.require(workspace.id)
+    _git(path, "remote", "add", "origin", "https://github.com/owner/repo.git")
+    service = AutonomousGitService(
+        workspaces,
+        SimpleNamespace(
+            branches=SimpleNamespace(
+                get_branch=lambda *args: {"commit": {"sha": "stale"}}
+            ),
+            pull_requests=SimpleNamespace(create_pull_request=lambda *args, **kwargs: {}),
+        ),
+    )
+    service.create_branch(context, branch="agent/stale-remote")
+    with pytest.raises(AutonomousGitError, match="Remote branch HEAD"):
+        service.create_draft_pull_request(
+            context, approved=True, owner="owner", repo="repo",
+            title="Stale", base="main"
+        )

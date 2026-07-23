@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-
-from app.repositories.models import CommitRequest, PushRequest
+from urllib.parse import urlparse
 
 
 class AutonomousGitError(ValueError):
@@ -31,13 +30,80 @@ class AutonomousGitService:
         self.github = github_provider
 
     def _bound_workspace(self, context: GitOperationContext):
-        record, path = self.repositories.require(context.workspace_id)
+        record = self.repositories.get_workspace(context.workspace_id)
+        path = self.repositories._workspace_root(record)
         actual = self.repositories.git.head_sha(path)
         if not actual or actual != context.expected_head_sha:
             raise AutonomousGitError(
                 "Workspace HEAD changed after the operation was planned"
             )
         return record, path
+
+    def _audit(
+        self,
+        record: Any,
+        event: str,
+        context: GitOperationContext,
+        **details: Any,
+    ) -> None:
+        event_writer = getattr(self.repositories, "_event", None)
+        store = getattr(self.repositories, "store", None)
+        if callable(event_writer) and store is not None:
+            event_writer(record, event, actor=context.actor, **details)
+            store.save(record)
+
+    def _persisted_validation(
+        self, record: Any, expected_head_sha: str
+    ) -> dict[str, Any]:
+        matching = [
+            run
+            for run in record.validation_runs
+            if run.head_sha == expected_head_sha
+        ]
+        if not matching or any(run.status != "succeeded" for run in matching):
+            raise AutonomousGitError(
+                "A persisted successful workspace validation for the exact HEAD is required"
+            )
+        latest_timestamp = max(run.timestamp for run in matching)
+        return {
+            "status": "passed",
+            "head_sha": expected_head_sha,
+            "run_ids": [run.id for run in matching],
+            "validated_at": latest_timestamp,
+        }
+
+    @staticmethod
+    def _github_repository(remote_url: str) -> tuple[str, str]:
+        value = remote_url.strip()
+        if value.startswith("git@github.com:"):
+            path = value.removeprefix("git@github.com:")
+        else:
+            parsed = urlparse(value)
+            if parsed.hostname != "github.com":
+                raise AutonomousGitError("Remote must be hosted on github.com")
+            path = parsed.path.lstrip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        parts = path.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise AutonomousGitError("Remote does not identify one GitHub repository")
+        return parts[0], parts[1]
+
+    def _bound_remote(
+        self, path: Any, remote: str, owner: str | None = None, repo: str | None = None
+    ) -> tuple[str, str]:
+        remotes = self.repositories.git.remotes(path)
+        if remote not in remotes:
+            raise AutonomousGitError(f"Configured Git remote not found: {remote}")
+        remote_owner, remote_repo = self._github_repository(remotes[remote])
+        if owner is not None and repo is not None and (
+            remote_owner.casefold(),
+            remote_repo.casefold(),
+        ) != (owner.casefold(), repo.casefold()):
+            raise AutonomousGitError(
+                "Pull request repository does not match the workspace Git remote"
+            )
+        return remote_owner, remote_repo
 
     @classmethod
     def _require_feature_branch(cls, branch: str | None) -> str:
@@ -66,16 +132,17 @@ class AutonomousGitService:
         branch: str,
         checkout: bool = True,
     ) -> dict[str, Any]:
-        _, path = self._bound_workspace(context)
+        record, path = self._bound_workspace(context)
         branch = self._require_feature_branch(branch)
         self.repositories.git.create_branch(
             path, branch, start_point=context.expected_head_sha, checkout=checkout
         )
-        self.repositories.store.record_event(
-            context.workspace_id,
+        self._audit(
+            record,
             "autonomous_git.branch_created",
-            context.actor,
-            {"branch": branch, "base_sha": context.expected_head_sha},
+            context,
+            branch=branch,
+            base_sha=context.expected_head_sha,
         )
         return {
             "workspace_id": context.workspace_id,
@@ -89,19 +156,13 @@ class AutonomousGitService:
         context: GitOperationContext,
         *,
         message: str,
-        validation: dict[str, Any],
         paths: list[str] | None = None,
     ) -> dict[str, Any]:
         record, path = self._bound_workspace(context)
         branch = self._require_feature_branch(
             self.repositories.git.current_branch(path)
         )
-        if validation.get("status") != "passed":
-            raise AutonomousGitError("A successful validation is required before commit")
-        if validation.get("head_sha") != context.expected_head_sha:
-            raise AutonomousGitError(
-                "Validation is stale relative to the current workspace HEAD"
-            )
+        validation = self._persisted_validation(record, context.expected_head_sha)
         status = self.repositories.git.status(path)
         if status.clean:
             raise AutonomousGitError("Workspace has no changes to commit")
@@ -118,11 +179,9 @@ class AutonomousGitService:
                     if entry.original_path
                 }
             )
-        result = self.repositories.commit(
-            context.workspace_id,
-            CommitRequest(message=message, paths=commit_paths),
-            actor_id=context.actor,
-        )
+        self.repositories.git.add(path, commit_paths)
+        sha = self.repositories.git.commit(path, message)
+        result = {"sha": sha}
         return {
             **result,
             "workspace_id": context.workspace_id,
@@ -143,12 +202,16 @@ class AutonomousGitService:
         branch = self._require_feature_branch(
             self.repositories.git.current_branch(path)
         )
-        result = self.repositories.push(
-            context.workspace_id,
-            PushRequest(remote=remote, branch=branch, set_upstream=True),
-            actor_id=context.actor,
-        )
-        return {**result, "approved": True, "expected_head_sha": context.expected_head_sha}
+        owner, repo = self._bound_remote(path, remote)
+        self.repositories.git.push(path, remote, branch, True, False)
+        return {
+            "remote": remote,
+            "repository": f"{owner}/{repo}",
+            "branch": branch,
+            "head_sha": context.expected_head_sha,
+            "approved": True,
+            "expected_head_sha": context.expected_head_sha,
+        }
 
     def create_draft_pull_request(
         self,
@@ -160,6 +223,7 @@ class AutonomousGitService:
         title: str,
         base: str,
         body: str = "",
+        remote: str = "origin",
     ) -> dict[str, Any]:
         self._require_approval(approved, "Pull request creation")
         _, path = self._bound_workspace(context)
@@ -168,6 +232,13 @@ class AutonomousGitService:
         )
         if self.github is None:
             raise AutonomousGitError("GitHub provider is not configured")
+        self._bound_remote(path, remote, owner, repo)
+        remote_branch = self.github.branches.get_branch(owner, repo, head)
+        remote_sha = ((remote_branch or {}).get("commit") or {}).get("sha")
+        if remote_sha != context.expected_head_sha:
+            raise AutonomousGitError(
+                "Remote branch HEAD does not match the approved workspace commit"
+            )
         return self.github.pull_requests.create_pull_request(
             owner,
             repo,
@@ -203,19 +274,13 @@ class AutonomousGitService:
         context: GitOperationContext,
         *,
         version: str,
-        validation: dict[str, Any],
         notes: str = "",
     ) -> dict[str, Any]:
         record, path = self._bound_workspace(context)
         version = version.strip()
         if not version or any(character.isspace() for character in version):
             raise AutonomousGitError("A whitespace-free release version is required")
-        if validation.get("status") != "passed":
-            raise AutonomousGitError("Release preparation requires passing validation")
-        if validation.get("head_sha") != context.expected_head_sha:
-            raise AutonomousGitError(
-                "Release validation is stale relative to the current workspace HEAD"
-            )
+        validation = self._persisted_validation(record, context.expected_head_sha)
         if not self.repositories.git.status(path).clean:
             raise AutonomousGitError("Release preparation requires a clean workspace")
         return {
@@ -223,7 +288,7 @@ class AutonomousGitService:
             "workspace_id": context.workspace_id,
             "version": version,
             "head_sha": context.expected_head_sha,
-            "branch": record.current_branch,
+            "branch": self.repositories.git.current_branch(path),
             "notes": notes,
             "validation": dict(validation),
             "tag_created": False,

@@ -13,7 +13,6 @@ from app.services.task_workspaces import (
     workspace_service,
 )
 from app.services.engineering_intelligence import engineering_intelligence_service
-from app.repositories.manager import get_repository_manager
 from app.services.autonomous_git import (
     AutonomousGitError,
     AutonomousGitService,
@@ -211,7 +210,7 @@ class HandlerRegistry:
     @staticmethod
     def _git_service(*, remote: bool = False) -> AutonomousGitService:
         provider = get_github_provider() if remote else None
-        return AutonomousGitService(get_repository_manager(), provider)
+        return AutonomousGitService(workspace_service, provider)
 
     @staticmethod
     def _git_context(step: ExecutionStep, run: ExecutionRun) -> GitOperationContext:
@@ -237,7 +236,6 @@ class HandlerRegistry:
             return cls._git_service().commit(
                 cls._git_context(step, run),
                 message=str(step.parameters["message"]),
-                validation=dict(step.parameters.get("validation") or {}),
                 paths=step.parameters.get("paths"),
             )
         except AutonomousGitError as exc:
@@ -275,6 +273,7 @@ class HandlerRegistry:
                 title=str(step.parameters["title"]),
                 base=str(step.parameters.get("base", "main")),
                 body=str(step.parameters.get("body", "")),
+                remote=str(step.parameters.get("remote", "origin")),
             )
         except AutonomousGitError as exc:
             raise NonRetryableExecutionError(str(exc)) from exc
@@ -303,7 +302,6 @@ class HandlerRegistry:
             return cls._git_service().prepare_release(
                 cls._git_context(step, run),
                 version=str(step.parameters["version"]),
-                validation=dict(step.parameters.get("validation") or {}),
                 notes=str(step.parameters.get("notes", "")),
             )
         except AutonomousGitError as exc:

@@ -160,6 +160,7 @@ class ValidationRun(BaseModel):
     status: str
     stdout: str = ""
     stderr: str = ""
+    head_sha: str | None = None
 
 
 class RollbackRecord(BaseModel):
@@ -916,6 +917,7 @@ class TaskWorkspaceService:
         with self._lock:
             record = self.get_workspace(workspace_id)
             root = self._workspace_root(record)
+            validation_head_sha = self.git.head_sha(root) if self.git.is_repository(root) else None
             commands = self.allowed_validation_commands(workspace_id)
             ids = request.command_ids
             if not ids:
@@ -959,6 +961,7 @@ class TaskWorkspaceService:
                         status=status,
                         stdout=self._redact(completed.stdout, root=root),
                         stderr=self._redact(completed.stderr, root=root),
+                        head_sha=validation_head_sha,
                     )
                 except subprocess.TimeoutExpired as exc:
                     failed = True
@@ -973,6 +976,7 @@ class TaskWorkspaceService:
                         status=ValidationRunStatus.TIMED_OUT,
                         stdout=self._redact(exc.stdout or "", root=root),
                         stderr=self._redact(exc.stderr or "", root=root),
+                        head_sha=validation_head_sha,
                     )
                 record.validation_runs.append(run)
                 results.append(run)
