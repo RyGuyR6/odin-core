@@ -62,7 +62,7 @@ def connect_sqlite(
     *,
     timeout: float = DEFAULT_SQLITE_TIMEOUT,
     check_same_thread: bool = True,
-    row_factory = sqlite3.Row,
+    row_factory: type[sqlite3.Row] | None = sqlite3.Row,
     foreign_keys: bool = True,
     journal_mode: str | None = "WAL",
     synchronous: str | None = None,

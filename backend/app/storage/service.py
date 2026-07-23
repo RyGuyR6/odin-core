@@ -1,11 +1,12 @@
 from __future__ import annotations
+from pathlib import Path
 from typing import Any,Mapping
 from app.storage.repositories import JobRepository,ContextRepository,PlannerRunRepository
 from app.storage.sqlite import SQLiteBackend
 from odin_shared.sqlite_persistence import resolve_sqlite_database_path
 
 
-def resolve_database_path():
+def resolve_database_path() -> Path:
     return resolve_sqlite_database_path("ODIN_DATABASE_PATH", "DATABASE_PATH")
 
 

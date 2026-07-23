@@ -26,6 +26,7 @@ from app.repositories.indexer import RepositoryIndexer
 from app.repositories.security import safe_child
 from odin_shared.sqlite_persistence import connect_sqlite, resolve_sqlite_database_path
 
+# Test-only override for isolated SQLite database paths.
 DB_PATH: Path | None = None
 
 

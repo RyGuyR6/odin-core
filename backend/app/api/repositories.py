@@ -21,6 +21,7 @@ from app.services.repository_intelligence import repository_intelligence_service
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
 
 GITHUB_API = "https://api.github.com"
+# Test-only override for isolated SQLite database paths.
 DB_PATH: Path | None = None
 
 
